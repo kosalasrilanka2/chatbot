@@ -212,6 +212,9 @@ class ConversationAssignmentService
             'status' => 'active',
             'last_activity' => now()
         ]);
+
+        // Broadcast the assignment to all agents so they can update their lists
+        broadcast(new \App\Events\NewConversationEvent($conversation->fresh()));
     }
 
     /**

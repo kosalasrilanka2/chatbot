@@ -130,6 +130,9 @@ class ChatController extends Controller
             $assignmentService = new ConversationAssignmentService();
             $assignedAgent = $assignmentService->autoAssignConversation($conversation);
 
+            // Broadcast the new conversation to all agents
+            broadcast(new \App\Events\NewConversationEvent($conversation->fresh()));
+
             // Simple skill info without using AgentSkill constants temporarily
             $languageName = $request->preferred_language;
             $domainName = $request->preferred_domain;
@@ -177,5 +180,46 @@ class ChatController extends Controller
         });
 
         return response()->json($messages);
+    }
+
+    public function closeConversation($conversationId)
+    {
+        try {
+            $conversation = Conversation::findOrFail($conversationId);
+            
+            // Verify the conversation belongs to the current user
+            if ($conversation->user_id !== Auth::user()->id) {
+                return response()->json(['error' => 'Unauthorized'], 403);
+            }
+
+            // Update conversation status to closed
+            $conversation->update([
+                'status' => 'closed',
+                'last_activity' => now()
+            ]);
+
+            // Create a system message indicating the conversation was closed by the user
+            Message::create([
+                'conversation_id' => $conversation->id,
+                'content' => 'Conversation ended by user at ' . now()->format('Y-m-d H:i:s'),
+                'sender_type' => 'system',
+                'sender_id' => null,
+            ]);
+
+            Log::info("Conversation {$conversationId} closed by user {" . Auth::user()->id . "}");
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Conversation closed successfully'
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error closing conversation: ' . $e->getMessage());
+            
+            return response()->json([
+                'error' => 'Failed to close conversation',
+                'message' => $e->getMessage()
+            ], 500);
+        }
     }
 }

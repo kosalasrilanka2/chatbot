@@ -79,17 +79,28 @@
                                 </div>
                                 
                                 <!-- Message Input -->
-                                <div class="p-6 border-t bg-white rounded-b-lg">
+                                <div id="message-input-area" class="p-6 border-t bg-white rounded-b-lg">
                                     <div class="flex space-x-2">
                                         <input type="text" 
                                                id="message-input" 
                                                placeholder="Type your response..." 
                                                class="flex-1 border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                                                onkeypress="if(event.key === 'Enter') sendMessage()">
-                                        <button onclick="sendMessage()" 
+                                        <button id="send-button"
+                                                onclick="sendMessage()" 
                                                 class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
                                             Send
                                         </button>
+                                    </div>
+                                </div>
+                                
+                                <!-- Read-only message for closed conversations -->
+                                <div id="read-only-message" class="p-4 border-t bg-gray-50 text-center text-gray-600 hidden rounded-b-lg">
+                                    <div class="flex items-center justify-center space-x-2">
+                                        <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                                        </svg>
+                                        <span>This conversation is closed and cannot receive new messages</span>
                                     </div>
                                 </div>
                             </div>
@@ -123,6 +134,20 @@
                 });
                 agentsChannel.listen('.agent.status.updated', (e) => {
                     console.log('Agent status updated:', e);
+                });
+
+                // Listen for new conversations
+                agentsChannel.listen('.conversation.new', (e) => {
+                    console.log('🔔 New conversation created:', e);
+                    
+                    // Show notification
+                    showNotification(`New conversation from ${e.conversation.user.name}`);
+                    
+                    // Refresh conversations list to show the new conversation
+                    loadConversations();
+                    
+                    // Update unread count
+                    updateUnreadCount();
                 });
 
                 // Listen for new messages on agent channel
@@ -245,35 +270,55 @@
         
         function createConversationDiv(conversation, isAssigned) {
             const div = document.createElement('div');
-            div.className = `border rounded p-4 hover:bg-gray-50 cursor-pointer mb-3 ${isAssigned ? 'bg-blue-50 border-blue-200' : 'bg-gray-50'}`;
+            const isClosed = conversation.status === 'closed';
+            
+            // Apply different styling for closed conversations
+            const baseClasses = 'border rounded p-4 mb-3';
+            const statusClasses = isClosed 
+                ? 'bg-gray-100 border-gray-300 opacity-75 cursor-default' 
+                : `hover:bg-gray-50 cursor-pointer ${isAssigned ? 'bg-blue-50 border-blue-200' : 'bg-gray-50'}`;
+            
+            div.className = `${baseClasses} ${statusClasses}`;
+            
+            const statusBadge = isClosed 
+                ? '<span class="px-2 py-1 bg-gray-300 text-gray-600 text-xs rounded">CLOSED</span>'
+                : (!isAssigned 
+                    ? `<button onclick="assignConversation(${conversation.id})" 
+                              class="px-3 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600">
+                          Pick Up
+                       </button>`
+                    : '<span class="px-3 py-1 bg-green-100 text-green-800 text-sm rounded">Assigned to me</span>');
+            
             div.innerHTML = `
                 <div class="flex justify-between items-start">
-                    <div onclick="openConversation(${conversation.id})">
-                        <h4 class="font-medium">${conversation.title || 'Conversation #' + conversation.id}</h4>
-                        <p class="text-sm text-gray-600">User: ${conversation.user.name}</p>
-                        <p class="text-sm text-gray-500">Status: ${conversation.status}</p>
-                        <p class="text-sm text-gray-500">Last Activity: ${new Date(conversation.last_activity).toLocaleString()}</p>
+                    <div onclick="${isClosed ? '' : `openConversation(${conversation.id})`}" class="${isClosed ? 'cursor-default' : 'cursor-pointer'}">
+                        <h4 class="font-medium ${isClosed ? 'text-gray-500' : ''}">${conversation.title || 'Conversation #' + conversation.id}</h4>
+                        <p class="text-sm ${isClosed ? 'text-gray-400' : 'text-gray-600'}">User: ${conversation.user.name}</p>
+                        <p class="text-sm ${isClosed ? 'text-gray-400' : 'text-gray-500'}">Status: ${conversation.status}</p>
+                        <p class="text-sm ${isClosed ? 'text-gray-400' : 'text-gray-500'}">Last Activity: ${new Date(conversation.last_activity).toLocaleString()}</p>
+                        ${isClosed ? '<p class="text-xs text-gray-400 mt-1 italic">Closed by user</p>' : ''}
                     </div>
                     <div class="flex space-x-2">
-                        ${!isAssigned ? `
-                            <button onclick="assignConversation(${conversation.id})" 
-                                    class="px-3 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600">
-                                Pick Up
-                            </button>
-                        ` : `
-                            <span class="px-3 py-1 bg-green-100 text-green-800 text-sm rounded">Assigned to me</span>
-                        `}
+                        ${statusBadge}
                     </div>
                 </div>
             `;
+            
+            // Make closed conversations clickable but in read-only mode
+            if (isClosed) {
+                div.onclick = () => openConversation(conversation.id, true); // true for read-only mode
+            }
+            
             return div;
         }
 
         let currentConversationId = null;
         let conversationChannel = null;
+        let isReadOnlyMode = false;
 
-        function openConversation(conversationId) {
+        function openConversation(conversationId, readOnly = false) {
             currentConversationId = conversationId;
+            isReadOnlyMode = readOnly;
             
             // Show conversation view
             document.getElementById('conversation-view').classList.remove('hidden');
@@ -282,16 +327,32 @@
             fetch(`/agent/conversation/${conversationId}`)
                 .then(response => response.json())
                 .then(conversation => {
-                    document.getElementById('conversation-title').textContent = 
-                        conversation.title || `Conversation with ${conversation.user.name}`;
+                    const titleElement = document.getElementById('conversation-title');
+                    const title = conversation.title || `Conversation with ${conversation.user.name}`;
+                    titleElement.textContent = readOnly ? `${title} (Read Only - Closed)` : title;
+                    
+                    // Apply read-only styling to the conversation view
+                    const conversationView = document.getElementById('conversation-view');
+                    if (readOnly) {
+                        conversationView.classList.add('opacity-75');
+                        titleElement.classList.add('text-gray-600');
+                    } else {
+                        conversationView.classList.remove('opacity-75');
+                        titleElement.classList.remove('text-gray-600');
+                    }
                 })
                 .catch(error => console.error('Error loading conversation:', error));
             
             // Load messages
             loadMessages(conversationId);
             
-            // Subscribe to conversation channel for real-time updates
-            subscribeToConversation(conversationId);
+            // Update message input visibility based on read-only mode
+            updateMessageInputState();
+            
+            // Subscribe to conversation channel for real-time updates (only if not read-only)
+            if (!readOnly) {
+                subscribeToConversation(conversationId);
+            }
         }
 
         function closeConversation() {
@@ -304,6 +365,28 @@
             }
             
             currentConversationId = null;
+            isReadOnlyMode = false; // Reset read-only mode
+        }
+
+        function updateMessageInputState() {
+            const messageInputArea = document.getElementById('message-input-area');
+            const readOnlyMessage = document.getElementById('read-only-message');
+            const messageInput = document.getElementById('message-input');
+            const sendButton = document.getElementById('send-button');
+            
+            if (isReadOnlyMode) {
+                // Hide input area and show read-only message
+                messageInputArea.classList.add('hidden');
+                readOnlyMessage.classList.remove('hidden');
+            } else {
+                // Show input area and hide read-only message
+                messageInputArea.classList.remove('hidden');
+                readOnlyMessage.classList.add('hidden');
+                
+                // Ensure input and button are enabled
+                messageInput.disabled = false;
+                sendButton.disabled = false;
+            }
         }
 
         function loadMessages(conversationId) {
@@ -409,6 +492,11 @@
         function sendMessage() {
             if (!currentConversationId) {
                 console.error('No conversation selected');
+                return;
+            }
+            
+            if (isReadOnlyMode) {
+                showNotification('Cannot send messages to closed conversations');
                 return;
             }
 

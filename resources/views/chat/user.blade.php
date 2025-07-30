@@ -12,9 +12,20 @@
                 <div class="p-6">
                     <!-- Chat Status Bar -->
                     <div id="chat-status" class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                        <div class="flex items-center">
-                            <div class="w-3 h-3 bg-blue-500 rounded-full mr-2 animate-pulse"></div>
-                            <span class="text-blue-700 font-medium">Welcome! Please select your preferred language and support area below.</span>
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center">
+                                <div class="w-3 h-3 bg-blue-500 rounded-full mr-2 animate-pulse"></div>
+                                <span class="text-blue-700 font-medium">Welcome! Please select your preferred language and support area below.</span>
+                            </div>
+                            <!-- End Conversation Button (hidden initially) -->
+                            <button id="end-conversation-btn" 
+                                    onclick="endCurrentConversation()" 
+                                    class="hidden px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors">
+                                <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                </svg>
+                                End Conversation
+                            </button>
                         </div>
                     </div>
 
@@ -310,23 +321,53 @@
             
             if (autoAssigned && agentName) {
                 statusDiv.innerHTML = `
-                    <div class="flex items-center">
-                        <div class="w-3 h-3 bg-green-500 rounded-full mr-2"></div>
-                        <span class="text-green-700 font-medium">Connected to ${agentName}</span>
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center">
+                            <div class="w-3 h-3 bg-green-500 rounded-full mr-2"></div>
+                            <span class="text-green-700 font-medium">Connected to ${agentName}</span>
+                        </div>
+                        <button id="end-conversation-btn" 
+                                onclick="endCurrentConversation()" 
+                                class="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors">
+                            <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                            End Conversation
+                        </button>
                     </div>
                 `;
             } else if (conversation.status === 'active' && conversation.agent) {
                 statusDiv.innerHTML = `
-                    <div class="flex items-center">
-                        <div class="w-3 h-3 bg-green-500 rounded-full mr-2"></div>
-                        <span class="text-green-700 font-medium">Connected to ${conversation.agent.name}</span>
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center">
+                            <div class="w-3 h-3 bg-green-500 rounded-full mr-2"></div>
+                            <span class="text-green-700 font-medium">Connected to ${conversation.agent.name}</span>
+                        </div>
+                        <button id="end-conversation-btn" 
+                                onclick="endCurrentConversation()" 
+                                class="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors">
+                            <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                            End Conversation
+                        </button>
                     </div>
                 `;
             } else {
                 statusDiv.innerHTML = `
-                    <div class="flex items-center">
-                        <div class="w-3 h-3 bg-yellow-500 rounded-full mr-2 animate-pulse"></div>
-                        <span class="text-yellow-700 font-medium">Waiting for available support agent...</span>
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center">
+                            <div class="w-3 h-3 bg-yellow-500 rounded-full mr-2 animate-pulse"></div>
+                            <span class="text-yellow-700 font-medium">Waiting for available support agent...</span>
+                        </div>
+                        <button id="end-conversation-btn" 
+                                onclick="endCurrentConversation()" 
+                                class="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors">
+                            <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                            End Conversation
+                        </button>
                     </div>
                 `;
             }
@@ -355,6 +396,82 @@
                 'NETWORK': 'Network'
             };
             return domains[code] || code;
+        }
+
+        // End current conversation and start fresh
+        function endCurrentConversation() {
+            if (!confirm('Are you sure you want to end this conversation? This action cannot be undone.')) {
+                return;
+            }
+
+            if (currentConversationId) {
+                // Send request to close conversation
+                fetch(`/chat/conversation/${currentConversationId}/close`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    console.log('Conversation closed:', data);
+                })
+                .catch(error => {
+                    console.error('Error closing conversation:', error);
+                });
+
+                // Leave the WebSocket channel
+                if (channel) {
+                    window.Echo.leaveChannel(channel.name);
+                    channel = null;
+                }
+            }
+
+            // Reset the interface
+            resetConversationInterface();
+        }
+
+        function resetConversationInterface() {
+            // Reset variables
+            currentConversationId = null;
+            isConversationStarted = false;
+
+            // Clear messages
+            document.getElementById('messages-container').innerHTML = `
+                <div class="text-center text-gray-500 py-8">
+                    <div class="text-4xl mb-2">💬</div>
+                    <p>Send a message to start chatting with our support team</p>
+                </div>
+            `;
+
+            // Reset status bar
+            document.getElementById('chat-status').innerHTML = `
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center">
+                        <div class="w-3 h-3 bg-blue-500 rounded-full mr-2 animate-pulse"></div>
+                        <span class="text-blue-700 font-medium">Welcome! Please select your preferred language and support area below.</span>
+                    </div>
+                    <button id="end-conversation-btn" 
+                            onclick="endCurrentConversation()" 
+                            class="hidden px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors">
+                        <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                        End Conversation
+                    </button>
+                </div>
+            `;
+
+            // Show skill selection panel
+            document.getElementById('skill-selection').style.display = 'block';
+
+            // Reset skill selections
+            document.getElementById('preferred-language').value = '';
+            document.getElementById('preferred-domain').value = '';
+
+            // Clear message input
+            document.getElementById('message-input').value = '';
         }
     </script>
     @endpush

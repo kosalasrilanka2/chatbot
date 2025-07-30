@@ -62,6 +62,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/chat/conversation', [ChatController::class, 'createConversation'])->name('chat.create-conversation');
     Route::get('/chat/conversation/{conversation}', [ChatController::class, 'getConversation'])->name('chat.get-conversation');
     Route::get('/chat/conversation/{conversation}/messages', [ChatController::class, 'getMessages'])->name('chat.get-messages');
+    Route::post('/chat/conversation/{conversation}/close', [ChatController::class, 'closeConversation'])->name('chat.close-conversation');
     Route::post('/chat/message', [ChatController::class, 'sendMessage'])->name('chat.send-message');
     Route::post('/chat/mark-read', [ChatController::class, 'markAsRead'])->name('chat.mark-read');
     

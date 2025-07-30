@@ -30,11 +30,12 @@ class AgentController extends Controller
 
         Log::info('Agent found: ' . $agent->id . ' for email: ' . Auth::user()->email);
 
-        // Get assigned conversations
+        // Get assigned conversations (both active and closed)
         $assignedConversations = Conversation::with(['user', 'messages' => function($query) {
             $query->latest()->limit(1);
         }])
         ->where('agent_id', $agent->id)
+        ->whereIn('status', ['active', 'closed']) // Include closed conversations
         ->orderBy('last_activity', 'desc')
         ->get();
 
@@ -115,6 +116,9 @@ class AgentController extends Controller
             'agent_id' => $agent->id,
             'status' => 'active'
         ]);
+
+        // Broadcast the assignment to all agents so they can update their lists
+        broadcast(new \App\Events\NewConversationEvent($conversation->fresh()));
 
         return response()->json(['message' => 'Conversation assigned successfully']);
     }
