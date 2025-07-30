@@ -6,50 +6,41 @@
     </x-slot>
 
     <div class="py-12">
-        <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
+        <div class="max-w-4xl mx-auto sm:px-6 lg:px-8">
             <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
                 <div class="p-6 text-gray-900">
-                    <div id="chat-container" class="flex h-96">
-                        <!-- Conversation List -->
-                        <div class="w-1/3 border-r pr-4">
-                            <div class="mb-4">
-                                <button onclick="createNewConversation()" 
-                                        class="w-full px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
-                                    New Conversation
-                                </button>
+                    <!-- Simple Chat Interface -->
+                    <div id="chat-container" class="flex flex-col h-[600px]">
+                        <!-- Chat Header -->
+                        <div id="chat-header" class="border-b pb-3 mb-4">
+                            <div id="connection-status" class="text-sm text-gray-500 mb-2">
+                                Connecting to support...
                             </div>
-                            <div id="conversation-list" class="space-y-2">
-                                <!-- Conversations will be loaded here -->
+                            <div id="agent-status" class="text-sm text-blue-600 hidden">
+                                <!-- Agent assignment status will appear here -->
                             </div>
                         </div>
 
-                        <!-- Chat Area -->
-                        <div class="w-2/3 pl-4">
-                            <div id="chat-area" class="h-full flex flex-col">
-                                <!-- Chat Header -->
-                                <div id="chat-header" class="border-b pb-2 mb-4">
-                                    <p class="text-gray-500">Select a conversation to start chatting</p>
-                                </div>
-
-                                <!-- Messages Container -->
-                                <div id="messages-container" class="flex-1 overflow-y-auto border border-gray-200 rounded p-4 mb-4">
-                                    <!-- Messages will appear here -->
-                                </div>
-
-                                <!-- Message Input -->
-                                <div id="message-input-container" class="hidden">
-                                    <div class="flex space-x-2">
-                                        <input type="text" 
-                                               id="message-input" 
-                                               placeholder="Type your message..." 
-                                               class="flex-1 border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                        <button onclick="sendMessage()" 
-                                                class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
-                                            Send
-                                        </button>
-                                    </div>
-                                </div>
+                        <!-- Messages Container -->
+                        <div id="messages-container" class="flex-1 overflow-y-auto border border-gray-200 rounded p-4 mb-4 bg-gray-50">
+                            <div id="welcome-message" class="text-center text-gray-500 py-8">
+                                <h3 class="text-lg font-medium mb-2">Welcome to Support Chat</h3>
+                                <p>Type your message below to start a conversation with our support team.</p>
                             </div>
+                        </div>
+
+                        <!-- Message Input -->
+                        <div id="message-input-container" class="flex gap-2">
+                            <input type="text" 
+                                   id="message-input" 
+                                   class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" 
+                                   placeholder="Type your message here..."
+                                   autocomplete="off">
+                            <button onclick="sendMessage()" 
+                                    id="send-button"
+                                    class="px-6 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                Send
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -119,11 +110,28 @@
                 })
             })
             .then(response => response.json())
-            .then(conversation => {
+            .then(data => {
+                console.log('🎉 USER: Conversation created:', data);
+                
+                // Show assignment message to user
+                if (data.auto_assigned) {
+                    console.log('✅ USER: Auto-assigned to agent:', data.agent_name);
+                } else {
+                    console.log('⏳ USER: Waiting for agent assignment');
+                }
+                
+                // Reload conversations and select the new one
                 loadUserConversations();
-                selectConversation(conversation.id);
+                // Use the conversation object from the response
+                if (data.conversation && data.conversation.id) {
+                    selectConversation(data.conversation.id);
+                } else {
+                    console.error('❌ USER: No conversation ID in response:', data);
+                }
             })
-            .catch(error => console.error('Error creating conversation:', error));
+            .catch(error => {
+                console.error('❌ USER: Error creating conversation:', error);
+            });
         }
 
         function loadUserConversations() {

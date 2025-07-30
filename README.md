@@ -5,13 +5,23 @@ A real-time chatbot agent application built with Laravel 12, Laravel Reverb WebS
 ## 🚀 Features
 
 - **Real-time messaging** between users and agents via WebSocket
+- **Intelligent auto-assignment** of conversations to available agents
+- **Agent workload balancing** with fair distribution algorithms
 - **Agent notifications** for new incoming messages
 - **Multiple conversation support** with proper routing
 - **User authentication** with Laravel Breeze
 - **Agent dashboard** with conversation management
+- **Admin dashboard** for monitoring system activity (no auth required)
 - **WebSocket connectivity** with Laravel Reverb
 - **Message persistence** in MySQL database
 - **Responsive UI** with Alpine.js and Tailwind CSS
+
+### 🤖 **Automatic Assignment System**
+- **Smart Distribution**: Assigns new conversations to least busy online agents
+- **Fallback to Manual**: When no agents online, conversations wait for manual pickup
+- **Load Balancing**: Uses conversation count + last activity time for fair distribution
+- **Auto-redistribution**: Redistributes conversations when agents go offline
+- **Workload Monitoring**: Real-time agent workload tracking in admin dashboard
 
 ## 🛠 Technology Stack
 
@@ -94,16 +104,24 @@ php artisan reverb:start
 
 ## 🎯 Usage
 
-### User Chat Interface
+### User Chat Interface (Simple)
 - Navigate to: `http://localhost:8000/chat`
 - Login with: `user@test.com` / `password` or `john@test.com` / `password`
-- Create conversations and send messages in real-time
+- Simple chat window that automatically creates conversations and assigns to available agents
+- No conversation management - just type and start chatting
 
-### Agent Dashboard
+### Agent Dashboard (Full Management)
 - Navigate to: `http://localhost:8000/agent/dashboard`
 - Login with: `agent@test.com` / `password` or `senior@test.com` / `password`
+- Manage multiple conversations simultaneously
 - View and respond to user conversations in real-time
 - Receive instant notifications for new messages
+- Full conversation management interface
+
+### Chat Management Interface (Advanced)
+- Navigate to: `http://localhost:8000/chat/manage`
+- Full chat management interface for power users or agents
+- Multiple conversation support with conversation list
 
 ## 🔧 Configuration
 

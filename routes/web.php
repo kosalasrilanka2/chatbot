@@ -56,7 +56,8 @@ Route::middleware('auth')->group(function () {
 
 // Chat routes
 Route::middleware('auth')->group(function () {
-    Route::get('/chat', [ChatController::class, 'index'])->name('chat.index');
+    Route::get('/chat', [ChatController::class, 'userChat'])->name('chat.user'); // Simple user chat
+    Route::get('/chat/manage', [ChatController::class, 'index'])->name('chat.index'); // Full chat management (for agents)
     Route::get('/chat/conversations', [ChatController::class, 'getUserConversations'])->name('chat.conversations');
     Route::post('/chat/conversation', [ChatController::class, 'createConversation'])->name('chat.create-conversation');
     Route::get('/chat/conversation/{conversation}', [ChatController::class, 'getConversation'])->name('chat.get-conversation');
@@ -64,7 +65,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/chat/message', [ChatController::class, 'sendMessage'])->name('chat.send-message');
     Route::post('/chat/mark-read', [ChatController::class, 'markAsRead'])->name('chat.mark-read');
     
-    // Debug route
+    // Debug routes
     Route::get('/chat/debug', function() {
         return response()->json([
             'user' => Auth::user(),
@@ -75,6 +76,20 @@ Route::middleware('auth')->group(function () {
             ]
         ]);
     })->name('chat.debug');
+    
+    Route::get('/debug/agent', function() {
+        $user = Auth::user();
+        $agent = \App\Models\Agent::where('email', $user->email)->first();
+        $allAgents = \App\Models\Agent::all();
+        $assignedConversations = $agent ? \App\Models\Conversation::where('agent_id', $agent->id)->get() : [];
+        
+        return response()->json([
+            'current_user' => $user,
+            'agent_found' => $agent,
+            'all_agents' => $allAgents,
+            'assigned_conversations' => $assignedConversations
+        ]);
+    });
     
     // Test messages endpoint
     Route::get('/chat/test-messages/{conversationId}', function($conversationId) {
@@ -121,6 +136,13 @@ Route::middleware('auth')->prefix('agent')->group(function () {
     Route::post('/status', [AgentController::class, 'updateStatus'])->name('agent.update-status');
     Route::post('/conversation/{conversation}/assign', [AgentController::class, 'assignConversation'])->name('agent.assign-conversation');
     Route::get('/unread-count', [AgentController::class, 'getUnreadCount'])->name('agent.unread-count');
+});
+
+// Admin routes (no authentication required)
+Route::prefix('admin')->group(function () {
+    Route::get('/dashboard', [App\Http\Controllers\AdminController::class, 'dashboard'])->name('admin.dashboard');
+    Route::get('/stats', [App\Http\Controllers\AdminController::class, 'getStats'])->name('admin.stats');
+    Route::get('/online-users', [App\Http\Controllers\AdminController::class, 'getOnlineUsers'])->name('admin.online-users');
 });
 
 require __DIR__.'/auth.php';

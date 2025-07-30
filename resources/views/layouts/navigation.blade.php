@@ -15,8 +15,8 @@
                     <x-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
                         {{ __('Dashboard') }}
                     </x-nav-link>
-                    <x-nav-link :href="route('chat.index')" :active="request()->routeIs('chat.*')">
-                        {{ __('Chat') }}
+                    <x-nav-link :href="route('chat.user')" :active="request()->routeIs('chat.*')">
+                        {{ __('Support Chat') }}
                     </x-nav-link>
                     <x-nav-link :href="route('agent.dashboard')" :active="request()->routeIs('agent.*')">
                         {{ __('Agent Dashboard') }}
@@ -75,6 +75,12 @@
         <div class="pt-2 pb-3 space-y-1">
             <x-responsive-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
                 {{ __('Dashboard') }}
+            </x-responsive-nav-link>
+            <x-responsive-nav-link :href="route('chat.user')" :active="request()->routeIs('chat.*')">
+                {{ __('Support Chat') }}
+            </x-responsive-nav-link>
+            <x-responsive-nav-link :href="route('agent.dashboard')" :active="request()->routeIs('agent.*')">
+                {{ __('Agent Dashboard') }}
             </x-responsive-nav-link>
         </div>
 

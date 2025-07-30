@@ -7,8 +7,10 @@ use App\Events\NewMessageEvent;
 use App\Models\Agent;
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Services\ConversationAssignmentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 
 class AgentController extends Controller
 {
@@ -22,18 +24,43 @@ class AgentController extends Controller
         $agent = Agent::where('email', Auth::user()->email)->first();
         
         if (!$agent) {
+            Log::info('Agent not found for email: ' . Auth::user()->email);
             return response()->json(['error' => 'Agent not found'], 404);
         }
 
-        $conversations = Conversation::with(['user', 'messages' => function($query) {
+        Log::info('Agent found: ' . $agent->id . ' for email: ' . Auth::user()->email);
+
+        // Get assigned conversations
+        $assignedConversations = Conversation::with(['user', 'messages' => function($query) {
             $query->latest()->limit(1);
         }])
         ->where('agent_id', $agent->id)
-        ->orWhereNull('agent_id')
         ->orderBy('last_activity', 'desc')
         ->get();
 
-        return response()->json($conversations);
+        Log::info('Assigned conversations count: ' . $assignedConversations->count());
+
+        // Get waiting conversations that can be manually picked up
+        $waitingConversations = Conversation::with(['user', 'messages' => function($query) {
+            $query->latest()->limit(1);
+        }])
+        ->where('status', 'waiting')
+        ->whereNull('agent_id')
+        ->orderBy('created_at', 'asc') // Oldest first for fairness
+        ->limit(10) // Show max 10 waiting conversations
+        ->get();
+
+        Log::info('Waiting conversations count: ' . $waitingConversations->count());
+
+        return response()->json([
+            'assigned_conversations' => $assignedConversations,
+            'waiting_conversations' => $waitingConversations,
+            'stats' => [
+                'assigned_count' => $assignedConversations->count(),
+                'waiting_count' => $waitingConversations->count(),
+                'total_waiting' => Conversation::where('status', 'waiting')->whereNull('agent_id')->count()
+            ]
+        ]);
     }
 
     public function updateStatus(Request $request)
@@ -48,6 +75,8 @@ class AgentController extends Controller
             'status' => 'required|in:online,offline,busy'
         ]);
 
+        $previousStatus = $agent->status;
+        
         $agent->update([
             'status' => $request->status,
             'last_seen' => now()
@@ -55,7 +84,23 @@ class AgentController extends Controller
 
         broadcast(new AgentStatusUpdated($agent));
 
-        return response()->json(['message' => 'Status updated successfully']);
+        // Handle automatic assignment when agent comes online
+        $assignmentService = new ConversationAssignmentService();
+        $assignedCount = 0;
+
+        if ($request->status === 'online' && $previousStatus !== 'online') {
+            // Agent just came online, try to assign waiting conversations
+            $assignedCount = $assignmentService->processWaitingConversationsForAgent($agent);
+        } elseif ($previousStatus === 'online' && $request->status === 'offline') {
+            // Agent went offline, redistribute their conversations
+            $redistributedCount = $assignmentService->redistributeConversationsFromOfflineAgent($agent);
+        }
+
+        return response()->json([
+            'message' => 'Status updated successfully',
+            'assigned_conversations' => $assignedCount,
+            'agent_status' => $request->status
+        ]);
     }
 
     public function assignConversation(Request $request, Conversation $conversation)

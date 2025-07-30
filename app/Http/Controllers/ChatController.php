@@ -6,6 +6,7 @@ use App\Events\NewMessageEvent;
 use App\Models\Agent;
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Services\ConversationAssignmentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -14,6 +15,11 @@ class ChatController extends Controller
     public function index()
     {
         return view('chat.index');
+    }
+
+    public function userChat()
+    {
+        return view('chat.user');
     }
 
     public function getUserConversations()
@@ -113,7 +119,18 @@ class ChatController extends Controller
             'last_activity' => now()
         ]);
 
-        return response()->json($conversation);
+        // Try to auto-assign to an available agent
+        $assignmentService = new ConversationAssignmentService();
+        $assignedAgent = $assignmentService->autoAssignConversation($conversation);
+
+        return response()->json([
+            'conversation' => $conversation->fresh(), // Get updated conversation data
+            'auto_assigned' => $assignedAgent ? true : false,
+            'agent_name' => $assignedAgent ? $assignedAgent->name : null,
+            'message' => $assignedAgent 
+                ? "Conversation created and assigned to {$assignedAgent->name}" 
+                : "Conversation created. Waiting for an available agent."
+        ]);
     }
 
     public function getMessages($conversationId)

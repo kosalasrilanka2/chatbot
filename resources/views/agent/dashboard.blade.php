@@ -183,36 +183,90 @@
 
         function loadConversations() {
             fetch('/agent/conversations')
-                .then(response => response.json())
-                .then(conversations => {
+                .then(response => {
+                    console.log('Response status:', response.status);
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Conversations data received:', data);
                     const container = document.getElementById('conversations-list');
                     container.innerHTML = '';
                     
-                    conversations.forEach(conversation => {
-                        const div = document.createElement('div');
-                        div.className = 'border rounded p-4 hover:bg-gray-50 cursor-pointer';
-                        div.innerHTML = `
-                            <div class="flex justify-between items-start">
-                                <div onclick="openConversation(${conversation.id})">
-                                    <h4 class="font-medium">${conversation.title || 'Conversation #' + conversation.id}</h4>
-                                    <p class="text-sm text-gray-600">User: ${conversation.user.name}</p>
-                                    <p class="text-sm text-gray-500">Status: ${conversation.status}</p>
-                                    <p class="text-sm text-gray-500">Last Activity: ${new Date(conversation.last_activity).toLocaleString()}</p>
-                                </div>
-                                <div class="flex space-x-2">
-                                    ${!conversation.agent_id ? `
-                                        <button onclick="assignConversation(${conversation.id})" 
-                                                class="px-3 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600">
-                                            Assign
-                                        </button>
-                                    ` : ''}
-                                </div>
-                            </div>
-                        `;
-                        container.appendChild(div);
-                    });
+                    // Check for error response
+                    if (data.error) {
+                        container.innerHTML = `<div class="text-red-600 p-4">${data.error}</div>`;
+                        return;
+                    }
+                    
+                    // Handle both assigned and waiting conversations
+                    const assignedConversations = data.assigned_conversations || [];
+                    const waitingConversations = data.waiting_conversations || [];
+                    
+                    console.log('Assigned conversations:', assignedConversations.length);
+                    console.log('Waiting conversations:', waitingConversations.length);
+                    
+                    // Add section header for assigned conversations if any exist
+                    if (assignedConversations.length > 0) {
+                        const assignedHeader = document.createElement('div');
+                        assignedHeader.className = 'mb-3 pb-2 border-b border-gray-200';
+                        assignedHeader.innerHTML = '<h3 class="font-semibold text-gray-800">My Assigned Conversations</h3>';
+                        container.appendChild(assignedHeader);
+                        
+                        assignedConversations.forEach(conversation => {
+                            const div = createConversationDiv(conversation, true);
+                            container.appendChild(div);
+                        });
+                    }
+                    
+                    // Add section header for waiting conversations if any exist
+                    if (waitingConversations.length > 0) {
+                        const waitingHeader = document.createElement('div');
+                        waitingHeader.className = 'mb-3 pb-2 border-b border-gray-200 mt-6';
+                        waitingHeader.innerHTML = '<h3 class="font-semibold text-gray-600">Available Conversations</h3>';
+                        container.appendChild(waitingHeader);
+                        
+                        waitingConversations.forEach(conversation => {
+                            const div = createConversationDiv(conversation, false);
+                            container.appendChild(div);
+                        });
+                    }
+                    
+                    // Show message if no conversations
+                    if (assignedConversations.length === 0 && waitingConversations.length === 0) {
+                        container.innerHTML = '<div class="text-center text-gray-500 py-8">No conversations available</div>';
+                    }
                 })
-                .catch(error => console.error('Error loading conversations:', error));
+                .catch(error => {
+                    console.error('Error loading conversations:', error);
+                    const container = document.getElementById('conversations-list');
+                    container.innerHTML = '<div class="text-red-600 p-4">Error loading conversations. Check console for details.</div>';
+                });
+        }
+        
+        function createConversationDiv(conversation, isAssigned) {
+            const div = document.createElement('div');
+            div.className = `border rounded p-4 hover:bg-gray-50 cursor-pointer mb-3 ${isAssigned ? 'bg-blue-50 border-blue-200' : 'bg-gray-50'}`;
+            div.innerHTML = `
+                <div class="flex justify-between items-start">
+                    <div onclick="openConversation(${conversation.id})">
+                        <h4 class="font-medium">${conversation.title || 'Conversation #' + conversation.id}</h4>
+                        <p class="text-sm text-gray-600">User: ${conversation.user.name}</p>
+                        <p class="text-sm text-gray-500">Status: ${conversation.status}</p>
+                        <p class="text-sm text-gray-500">Last Activity: ${new Date(conversation.last_activity).toLocaleString()}</p>
+                    </div>
+                    <div class="flex space-x-2">
+                        ${!isAssigned ? `
+                            <button onclick="assignConversation(${conversation.id})" 
+                                    class="px-3 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600">
+                                Pick Up
+                            </button>
+                        ` : `
+                            <span class="px-3 py-1 bg-green-100 text-green-800 text-sm rounded">Assigned to me</span>
+                        `}
+                    </div>
+                </div>
+            `;
+            return div;
         }
 
         let currentConversationId = null;

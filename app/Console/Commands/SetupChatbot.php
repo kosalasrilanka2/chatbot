@@ -30,7 +30,7 @@ class SetupChatbot extends Command
 
         if ($this->option('fresh')) {
             $this->info('🔄 Running fresh setup...');
-            
+
             // Fresh migrations
             $this->call('migrate:fresh');
         } else {
@@ -54,6 +54,7 @@ class SetupChatbot extends Command
         $this->info('  • Login: http://localhost:8000/login');
         $this->info('  • User Chat: http://localhost:8000/chat');
         $this->info('  • Agent Dashboard: http://localhost:8000/agent/dashboard');
+        $this->info('  • Admin Dashboard: http://localhost:8000/admin/dashboard (no auth required)');
         $this->info('');
         $this->info('👤 Test Accounts:');
         $this->info('  Regular Users:');
@@ -67,6 +68,11 @@ class SetupChatbot extends Command
         $this->info('  Terminal 1: php artisan serve');
         $this->info('  Terminal 2: php artisan reverb:start');
         $this->info('  Terminal 3: npm run dev');
+        $this->info('');
+        $this->info('🛠️ Useful commands:');
+        $this->info('  • php artisan conversations:clear - Clear all conversations/messages');
+        $this->info('  • php artisan conversations:process-waiting - Process waiting conversations');
+        $this->info('  • php artisan data:sample - Create sample conversations');
 
         return 0;
     }
