@@ -107,12 +107,15 @@ php artisan reverb:start
 ### User Chat Interface (Simple)
 - Navigate to: `http://localhost:8000/chat`
 - Login with: `user@test.com` / `password` or `john@test.com` / `password`
+- **Simplified navigation** - Only shows "Support Chat" tab (no confusing agent/admin links)
+- **Clean interface** with dedicated user layout template
 - Simple chat window that automatically creates conversations and assigns to available agents
 - No conversation management - just type and start chatting
 
 ### Agent Dashboard (Full Management)
-- Navigate to: `http://localhost:8000/agent/dashboard`
+- Navigate to: `http://localhost:8000/agent` (simplified URL!)
 - Login with: `agent@test.com` / `password` or `senior@test.com` / `password`
+- **Clean navigation** - Only shows "Agent Dashboard" (no confusing user links)
 - Manage multiple conversations simultaneously
 - View and respond to user conversations in real-time
 - Receive instant notifications for new messages
@@ -120,8 +123,9 @@ php artisan reverb:start
 
 ### Chat Management Interface (Advanced)
 - Navigate to: `http://localhost:8000/chat/manage`
-- Full chat management interface for power users or agents
+- Full chat management interface for power users
 - Multiple conversation support with conversation list
+- Note: Most agents should use the main Agent Dashboard at `/agent`
 
 ## 🔧 Configuration
 

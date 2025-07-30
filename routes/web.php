@@ -127,6 +127,10 @@ Route::middleware('auth')->group(function () {
 });
 
 // Agent routes
+Route::middleware('auth')->group(function () {
+    Route::get('/agent', [AgentController::class, 'index'])->name('agent.index');
+});
+
 Route::middleware('auth')->prefix('agent')->group(function () {
     Route::get('/dashboard', [AgentController::class, 'index'])->name('agent.dashboard');
     Route::get('/conversations', [AgentController::class, 'conversations'])->name('agent.conversations');

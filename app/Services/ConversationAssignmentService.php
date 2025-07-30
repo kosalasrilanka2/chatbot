@@ -10,44 +10,84 @@ use Illuminate\Support\Facades\Log;
 
 class ConversationAssignmentService
 {
+    // Configuration constants for real-world scenarios
+    const MAX_CONVERSATIONS_PER_AGENT = 5; // Typical call center limit
+    const AGENT_OFFLINE_THRESHOLD_MINUTES = 5; // Consider offline after 5 minutes
+    const HIGH_PRIORITY_QUEUE_LIMIT = 3; // Max high priority conversations per agent
+    
     /**
-     * Automatically assign a conversation to an available agent
+     * Automatically assign a conversation to an available agent with advanced logic
      */
-    public function autoAssignConversation(Conversation $conversation): ?Agent
+    public function autoAssignConversation(Conversation $conversation, $priority = 'normal'): ?Agent
     {
         // Don't reassign if already assigned
         if ($conversation->agent_id) {
             return null;
         }
 
-        $agent = $this->findBestAvailableAgent();
+        $agent = $this->findBestAvailableAgent($priority);
         
         if ($agent) {
             $this->assignConversationToAgent($conversation, $agent);
             $this->notifyAgentOfNewAssignment($conversation, $agent);
             
-            Log::info("Auto-assigned conversation {$conversation->id} to agent {$agent->id} ({$agent->name})");
+            Log::info("Auto-assigned conversation {$conversation->id} to agent {$agent->id} ({$agent->name}) with priority: {$priority}");
             
             return $agent;
         }
 
-        Log::info("No available agents for conversation {$conversation->id}");
+        Log::info("No available agents for conversation {$conversation->id} with priority: {$priority}");
+        
+        // Add to waiting queue with priority
+        $this->addToWaitingQueue($conversation, $priority);
+        
         return null;
     }
 
     /**
-     * Find the best available agent using intelligent distribution
+     * Enhanced agent selection with capacity and priority management
      */
-    private function findBestAvailableAgent(): ?Agent
+    private function findBestAvailableAgent($priority = 'normal'): ?Agent
     {
-        // Get online agents ordered by workload (least busy first)
+        // Get agents who are online and not at capacity
         $availableAgents = Agent::where('status', 'online')
-            ->withCount(['conversations as active_conversations_count' => function ($query) {
-                $query->where('status', 'active');
-            }])
-            ->orderBy('active_conversations_count', 'asc')
-            ->orderBy('last_seen', 'asc') // Secondary sort: least recently active
+            ->where('last_seen', '>', now()->subMinutes(self::AGENT_OFFLINE_THRESHOLD_MINUTES))
+            ->withCount([
+                'conversations as active_conversations_count' => function ($query) {
+                    $query->whereIn('status', ['active', 'waiting']);
+                },
+                'conversations as high_priority_count' => function ($query) {
+                    $query->whereIn('status', ['active', 'waiting'])
+                          ->where('priority', 'high');
+                }
+            ])
+            ->having('active_conversations_count', '<', self::MAX_CONVERSATIONS_PER_AGENT)
             ->get();
+
+        if ($availableAgents->isEmpty()) {
+            Log::info("No agents available within capacity limits");
+            return null;
+        }
+
+        // Filter by priority capacity for high priority conversations
+        if ($priority === 'high') {
+            $availableAgents = $availableAgents->filter(function ($agent) {
+                return $agent->high_priority_count < self::HIGH_PRIORITY_QUEUE_LIMIT;
+            });
+        }
+
+        if ($availableAgents->isEmpty()) {
+            Log::info("No agents available for priority: {$priority}");
+            return null;
+        }
+
+        // Sort by workload and experience
+        return $availableAgents->sortBy([
+            ['active_conversations_count', 'asc'],
+            ['high_priority_count', 'asc'],
+            ['last_seen', 'asc']
+        ])->first();
+    }
 
         if ($availableAgents->isEmpty()) {
             return null;

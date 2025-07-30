@@ -1,4 +1,4 @@
-<x-app-layout>
+<x-user-layout>
     <x-slot name="header">
         <h2 class="font-semibold text-xl text-gray-800 leading-tight">
             {{ __('Customer Support Chat') }}
@@ -277,4 +277,4 @@
         }
     </script>
     @endpush
-</x-app-layout>
+</x-user-layout>
