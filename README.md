@@ -10,13 +10,13 @@ A real-time chatbot agent application built with Laravel 12, Laravel Reverb WebS
 - **User authentication** with Laravel Breeze
 - **Agent dashboard** with conversation management
 - **WebSocket connectivity** with Laravel Reverb
-- **Message persistence** in SQLite database
+- **Message persistence** in MySQL database
 - **Responsive UI** with Alpine.js and Tailwind CSS
 
 ## 🛠 Technology Stack
 
 - **Backend**: Laravel 12, PHP 8.2+
-- **Database**: SQLite
+- **Database**: MySQL
 - **Real-time**: Laravel Reverb (WebSocket server)
 - **Frontend**: Blade templates, Alpine.js, Tailwind CSS
 - **Asset Building**: Vite
@@ -28,7 +28,7 @@ A real-time chatbot agent application built with Laravel 12, Laravel Reverb WebS
 - PHP 8.2 or higher
 - Composer
 - Node.js and NPM
-- SQLite
+- MySQL server
 
 ## ⚡ Quick Start
 
@@ -51,25 +51,36 @@ php artisan key:generate
 ```
 
 ### 4. Database setup
+
+#### MySQL Configuration
+Update your `.env` file with your MySQL database credentials:
+```env
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=chatbot
+DB_USERNAME=chatbotdbuser
+DB_PASSWORD=abc123
+```
+
+#### Run Migrations and Setup
 ```bash
+# Option 1: Quick setup (recommended)
+php artisan chatbot:setup
+
+# Option 2: Manual setup
 php artisan migrate
-php artisan db:seed
+php artisan users:create
+php artisan data:sample
 ```
 
-### 5. Create test users
-```bash
-php artisan tinker
-```
-Then run:
-```php
-// Create a test user
-User::create(['name' => 'Test User', 'email' => 'user@example.com', 'password' => bcrypt('password'), 'email_verified_at' => now()]);
+This will create all necessary tables and populate them with:
+- 4 test users (2 regular users + 2 agent users)
+- 2 agents with proper authentication
+- 3 sample conversations with 8 messages
+- Mix of read/unread messages for testing
 
-// Create a test agent
-App\Models\Agent::create(['name' => 'Agent Smith', 'email' => 'agent@example.com', 'status' => 'online', 'last_seen' => now()]);
-```
-
-### 6. Build assets and start servers
+### 5. Build assets and start servers
 ```bash
 # Terminal 1: Build assets
 npm run dev
@@ -85,12 +96,12 @@ php artisan reverb:start
 
 ### User Chat Interface
 - Navigate to: `http://localhost:8000/chat`
-- Login with: `user@example.com` / `password`
+- Login with: `user@test.com` / `password` or `john@test.com` / `password`
 - Create conversations and send messages in real-time
 
 ### Agent Dashboard
 - Navigate to: `http://localhost:8000/agent/dashboard`
-- Login with: `agent@example.com` / `password`
+- Login with: `agent@test.com` / `password` or `senior@test.com` / `password`
 - View and respond to user conversations in real-time
 - Receive instant notifications for new messages
 
@@ -101,8 +112,12 @@ Key environment variables in `.env`:
 
 ```env
 # Database
-DB_CONNECTION=sqlite
-DB_DATABASE=/absolute/path/to/database/database.sqlite
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=chatbot
+DB_USERNAME=chatbotdbuser
+DB_PASSWORD=abc123
 
 # Broadcasting
 BROADCAST_CONNECTION=reverb
