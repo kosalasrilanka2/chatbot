@@ -25,8 +25,15 @@ class ConversationAssignmentService
             return null;
         }
 
-        $agent = $this->findBestAvailableAgent($priority);
-        // Temporarily disabled skill-based routing: $this->findBestAvailableAgentWithSkills($conversation, $priority);
+        $agent = $this->findBestAvailableAgentWithSkills($conversation, $priority);
+        
+        if (!$agent) {
+            // Only fallback to basic assignment if no specific skills are required
+            // If both language AND domain are specified, we require strict skill matching
+            if (!$conversation->preferred_language && !$conversation->preferred_domain) {
+                $agent = $this->findBestAvailableAgent($priority);
+            }
+        }
         
         if ($agent) {
             $this->assignConversationToAgent($conversation, $agent);
@@ -50,9 +57,8 @@ class ConversationAssignmentService
      */
     private function findBestAvailableAgentWithSkills(Conversation $conversation, $priority = 'normal'): ?Agent
     {
-        // Get basic availability criteria
+        // Get basic availability criteria - only check online status, not last_seen
         $baseQuery = Agent::where('status', 'online')
-            ->where('last_seen', '>', now()->subMinutes(self::AGENT_OFFLINE_THRESHOLD_MINUTES))
             ->withCount([
                 'conversations as active_conversations_count' => function ($query) {
                     $query->whereIn('status', ['active', 'waiting']);
@@ -65,24 +71,27 @@ class ConversationAssignmentService
             ->having('active_conversations_count', '<', self::MAX_CONVERSATIONS_PER_AGENT);
 
         // If conversation has skill requirements, filter by skills
-        if ($conversation->preferred_language || $conversation->preferred_domain) {
+        if ($conversation->preferred_language && $conversation->preferred_domain) {
+            // Both language AND domain are required - agent must have BOTH skills
+            $baseQuery->whereHas('skills', function ($langQuery) use ($conversation) {
+                $langQuery->where('skill_type', 'language')
+                        ->where('skill_code', $conversation->preferred_language);
+            })
+            ->whereHas('skills', function ($domainQuery) use ($conversation) {
+                $domainQuery->where('skill_type', 'domain')
+                          ->where('skill_code', $conversation->preferred_domain);
+            });
+        } elseif ($conversation->preferred_language) {
+            // Only language requirement
             $baseQuery->whereHas('skills', function ($skillQuery) use ($conversation) {
-                $skillQuery->where(function ($q) use ($conversation) {
-                    if ($conversation->preferred_language) {
-                        $q->where(function ($langQuery) use ($conversation) {
-                            $langQuery->where('skill_type', 'language')
-                                    ->where('skill_code', $conversation->preferred_language);
-                        });
-                    }
-                    
-                    if ($conversation->preferred_domain) {
-                        $method = $conversation->preferred_language ? 'orWhere' : 'where';
-                        $q->$method(function ($domainQuery) use ($conversation) {
-                            $domainQuery->where('skill_type', 'domain')
-                                       ->where('skill_code', $conversation->preferred_domain);
-                        });
-                    }
-                });
+                $skillQuery->where('skill_type', 'language')
+                          ->where('skill_code', $conversation->preferred_language);
+            });
+        } elseif ($conversation->preferred_domain) {
+            // Only domain requirement
+            $baseQuery->whereHas('skills', function ($skillQuery) use ($conversation) {
+                $skillQuery->where('skill_type', 'domain')
+                          ->where('skill_code', $conversation->preferred_domain);
             });
         }
 
@@ -91,8 +100,8 @@ class ConversationAssignmentService
         if ($availableAgents->isEmpty()) {
             Log::info("No skilled agents available within capacity limits for language: {$conversation->preferred_language}, domain: {$conversation->preferred_domain}");
             
-            // Fallback: Try to find agents without skill requirements
-            return $this->findBestAvailableAgent($priority);
+            // Return null instead of fallback - let the parent method handle fallback logic
+            return null;
         }
 
         // Filter by priority capacity for high priority conversations
@@ -116,10 +125,9 @@ class ConversationAssignmentService
             return $agent;
         });
 
-        // Sort by: skill match score (desc), conversation count (asc), last seen (asc)
+        // Sort by: skill match score (desc), conversation count (asc)
         $bestAgent = $scoredAgents->sortByDesc('skill_match_score')
             ->sortBy('active_conversations_count')
-            ->sortBy('last_seen')
             ->first();
 
         // Update conversation with match scores
@@ -140,9 +148,8 @@ class ConversationAssignmentService
      */
     private function findBestAvailableAgent($priority = 'normal'): ?Agent
     {
-        // Get agents who are online and not at capacity
+        // Get agents who are online and not at capacity - only check online status
         $availableAgents = Agent::where('status', 'online')
-            ->where('last_seen', '>', now()->subMinutes(self::AGENT_OFFLINE_THRESHOLD_MINUTES))
             ->withCount([
                 'conversations as active_conversations_count' => function ($query) {
                     $query->whereIn('status', ['active', 'waiting']);
@@ -175,8 +182,7 @@ class ConversationAssignmentService
         // Sort by workload and experience
         return $availableAgents->sortBy([
             ['active_conversations_count', 'asc'],
-            ['high_priority_count', 'asc'],
-            ['last_seen', 'asc']
+            ['high_priority_count', 'asc']
         ])->first();
     }
 
