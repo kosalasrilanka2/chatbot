@@ -9,6 +9,72 @@
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
             <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
                 <div class="p-6 text-gray-900">
+                    <!-- Agent Profile Section -->
+                    @if($agent)
+                    <div class="mb-6 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg shadow-sm">
+                        <div class="flex items-center justify-between flex-wrap gap-4">
+                            <div>
+                                <h3 class="text-lg font-semibold text-gray-800 flex items-center">
+                                    <svg class="w-5 h-5 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                                    </svg>
+                                    {{ $agent->name }}
+                                </h3>
+                                <p class="text-sm text-gray-600">{{ $agent->email }}</p>
+                            </div>
+                            <div class="flex items-center space-x-3">
+                                <span class="text-sm font-medium text-gray-700 flex items-center">
+                                    <svg class="w-4 h-4 mr-1 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+                                    </svg>
+                                    Skills:
+                                </span>
+                                <div class="flex flex-wrap gap-1.5">
+                                    @php
+                                        $skillColors = [
+                                            'language' => [
+                                                'SI' => 'bg-emerald-100 text-emerald-700 border-emerald-200',
+                                                'TI' => 'bg-sky-100 text-sky-700 border-sky-200', 
+                                                'EN' => 'bg-violet-100 text-violet-700 border-violet-200'
+                                            ],
+                                            'domain' => [
+                                                'FINANCE' => 'bg-amber-100 text-amber-700 border-amber-200',
+                                                'HR' => 'bg-rose-100 text-rose-700 border-rose-200',
+                                                'IT' => 'bg-blue-100 text-blue-700 border-blue-200',
+                                                'NETWORK' => 'bg-slate-100 text-slate-700 border-slate-200'
+                                            ]
+                                        ];
+                                        
+                                        $skillIcons = [
+                                            'language' => '🌐',
+                                            'domain' => '💼'
+                                        ];
+                                    @endphp
+                                    
+                                    @foreach($agent->skills as $skill)
+                                        @php
+                                            $colorClass = $skillColors[$skill->skill_type][$skill->skill_code] ?? 'bg-gray-100 text-gray-700 border-gray-200';
+                                            $displayName = $skill->skill_code;
+                                            if ($skill->skill_type === 'language') {
+                                                $displayName = [
+                                                    'SI' => 'Sinhala',
+                                                    'TI' => 'Tamil', 
+                                                    'EN' => 'English'
+                                                ][$skill->skill_code] ?? $skill->skill_code;
+                                            }
+                                            $icon = $skillIcons[$skill->skill_type] ?? '⚡';
+                                        @endphp
+                                        <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border {{ $colorClass }} shadow-sm">
+                                            <span class="mr-1">{{ $icon }}</span>
+                                            {{ $displayName }}
+                                        </span>
+                                    @endforeach
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    @endif
+
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         <!-- Left Column: Agent Controls & Conversations -->
                         <div>

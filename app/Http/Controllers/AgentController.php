@@ -16,7 +16,14 @@ class AgentController extends Controller
 {
     public function index()
     {
-        return view('agent.dashboard');
+        $agent = Agent::with('skills')->where('email', Auth::user()->email)->first();
+        
+        if (!$agent) {
+            // If no agent found, redirect to a different page or show an error
+            return redirect()->route('dashboard')->with('error', 'Agent profile not found. Please contact administrator.');
+        }
+        
+        return view('agent.dashboard', compact('agent'));
     }
 
     public function conversations()
