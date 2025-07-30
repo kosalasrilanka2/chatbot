@@ -89,19 +89,26 @@ class ConversationAssignmentService
         ])->first();
     }
 
-        if ($availableAgents->isEmpty()) {
-            return null;
-        }
+    /**
+     * Add conversation to waiting queue with priority
+     */
+    private function addToWaitingQueue(Conversation $conversation, $priority = 'normal'): void
+    {
+        $conversation->update([
+            'status' => 'waiting',
+            'priority' => $priority,
+            'last_activity' => now()
+        ]);
 
-        // If multiple agents have the same conversation count, pick the one who was active longest ago
-        $leastBusyCount = $availableAgents->first()->active_conversations_count;
-        
-        $bestCandidates = $availableAgents->filter(function ($agent) use ($leastBusyCount) {
-            return $agent->active_conversations_count === $leastBusyCount;
-        });
+        // Create system message to inform user they're in queue
+        Message::create([
+            'conversation_id' => $conversation->id,
+            'content' => "All our agents are currently busy. You've been added to the queue and will be connected to the next available agent.",
+            'sender_type' => 'system',
+            'sender_id' => null,
+        ]);
 
-        // Return the agent who was least recently active among the least busy ones
-        return $bestCandidates->sortBy('last_seen')->first();
+        Log::info("Added conversation {$conversation->id} to waiting queue with priority: {$priority}");
     }
 
     /**
