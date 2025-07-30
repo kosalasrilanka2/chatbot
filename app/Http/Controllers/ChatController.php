@@ -206,6 +206,9 @@ class ChatController extends Controller
                 'sender_id' => null,
             ]);
 
+            // Broadcast the conversation closure to all agents
+            broadcast(new \App\Events\ConversationClosedEvent($conversation->fresh()));
+
             Log::info("Conversation {$conversationId} closed by user {" . Auth::user()->id . "}");
 
             return response()->json([

@@ -205,6 +205,11 @@ class AgentController extends Controller
 
         $conversation = Conversation::find($request->conversation_id);
 
+        // Check if conversation is closed
+        if ($conversation->status === 'closed') {
+            return response()->json(['error' => 'Cannot send messages to closed conversations'], 400);
+        }
+
         // Check if agent has access to this conversation
         if ($conversation->agent_id !== $agent->id && $conversation->agent_id !== null) {
             return response()->json(['error' => 'Unauthorized'], 403);

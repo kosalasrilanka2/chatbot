@@ -150,6 +150,36 @@
                     updateUnreadCount();
                 });
 
+                // Listen for conversation closures
+                agentsChannel.listen('.conversation.closed', (e) => {
+                    console.log('🔒 Conversation closed:', e);
+                    
+                    // Show notification
+                    showNotification(`Conversation with ${e.conversation.user.name} was closed`);
+                    
+                    // Refresh conversations list to update the status
+                    loadConversations();
+                    
+                    // If this is the currently open conversation, switch to read-only mode
+                    if (currentConversationId == e.conversation.id) {
+                        isReadOnlyMode = true;
+                        updateMessageInputState();
+                        
+                        // Update the title to show it's closed
+                        const titleElement = document.getElementById('conversation-title');
+                        if (titleElement) {
+                            titleElement.textContent = `${titleElement.textContent} (Read Only - Closed)`;
+                            titleElement.classList.add('text-gray-600');
+                        }
+                        
+                        // Add visual indicator to conversation view
+                        const conversationView = document.getElementById('conversation-view');
+                        if (conversationView) {
+                            conversationView.classList.add('opacity-75');
+                        }
+                    }
+                });
+
                 // Listen for new messages on agent channel
                 @auth
                     @php
