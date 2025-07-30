@@ -16,6 +16,7 @@ class Conversation extends Model
         'last_activity',
         'preferred_language',
         'preferred_domain',
+        'priority',
         'skill_requirements',
         'language_match_score',
         'domain_match_score'
