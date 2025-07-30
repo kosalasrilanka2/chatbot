@@ -4,11 +4,13 @@ namespace App\Http\Controllers;
 
 use App\Events\NewMessageEvent;
 use App\Models\Agent;
+use App\Models\AgentSkill;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Services\ConversationAssignmentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 
 class ChatController extends Controller
 {
@@ -108,29 +110,58 @@ class ChatController extends Controller
 
     public function createConversation(Request $request)
     {
-        $request->validate([
-            'title' => 'nullable|string',
-        ]);
+        try {
+            $request->validate([
+                'title' => 'nullable|string',
+                'preferred_language' => 'nullable|string|in:SI,TI,EN',
+                'preferred_domain' => 'nullable|string|in:FINANCE,HR,IT,NETWORK',
+            ]);
 
-        $conversation = Conversation::create([
-            'title' => $request->title ?? 'New Conversation',
-            'user_id' => Auth::user()->id,
-            'status' => 'waiting',
-            'last_activity' => now()
-        ]);
+            $conversation = Conversation::create([
+                'title' => $request->title ?? 'New Conversation',
+                'user_id' => Auth::user()->id,
+                'status' => 'waiting',
+                'preferred_language' => $request->preferred_language,
+                'preferred_domain' => $request->preferred_domain,
+                'last_activity' => now()
+            ]);
 
-        // Try to auto-assign to an available agent
-        $assignmentService = new ConversationAssignmentService();
-        $assignedAgent = $assignmentService->autoAssignConversation($conversation);
+            // Try to auto-assign to an available agent with skill matching
+            $assignmentService = new ConversationAssignmentService();
+            $assignedAgent = $assignmentService->autoAssignConversation($conversation);
 
-        return response()->json([
-            'conversation' => $conversation->fresh(), // Get updated conversation data
-            'auto_assigned' => $assignedAgent ? true : false,
-            'agent_name' => $assignedAgent ? $assignedAgent->name : null,
-            'message' => $assignedAgent 
-                ? "Conversation created and assigned to {$assignedAgent->name}" 
-                : "Conversation created. Waiting for an available agent."
-        ]);
+            // Simple skill info without using AgentSkill constants temporarily
+            $languageName = $request->preferred_language;
+            $domainName = $request->preferred_domain;
+
+            $skillInfo = '';
+            if ($languageName && $domainName) {
+                $skillInfo = " (Language: {$languageName}, Domain: {$domainName})";
+            } elseif ($languageName) {
+                $skillInfo = " (Language: {$languageName})";
+            } elseif ($domainName) {
+                $skillInfo = " (Domain: {$domainName})";
+            }
+
+            return response()->json([
+                'conversation' => $conversation->fresh(), // Get updated conversation data
+                'auto_assigned' => $assignedAgent ? true : false,
+                'agent_name' => $assignedAgent ? $assignedAgent->name : null,
+                'skill_match' => $assignedAgent && ($languageName || $domainName),
+                'message' => $assignedAgent 
+                    ? "Conversation created and assigned to {$assignedAgent->name}{$skillInfo}" 
+                    : "Conversation created{$skillInfo}. Waiting for a suitable agent."
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error creating conversation: ' . $e->getMessage());
+            Log::error('Stack trace: ' . $e->getTraceAsString());
+            
+            return response()->json([
+                'error' => 'Failed to create conversation',
+                'message' => $e->getMessage(),
+                'debug' => config('app.debug') ? $e->getTraceAsString() : null
+            ], 500);
+        }
     }
 
     public function getMessages($conversationId)

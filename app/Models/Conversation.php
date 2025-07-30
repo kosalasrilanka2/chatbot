@@ -13,11 +13,17 @@ class Conversation extends Model
         'user_id',
         'agent_id',
         'status',
-        'last_activity'
+        'last_activity',
+        'preferred_language',
+        'preferred_domain',
+        'skill_requirements',
+        'language_match_score',
+        'domain_match_score'
     ];
 
     protected $casts = [
         'last_activity' => 'datetime',
+        'skill_requirements' => 'array'
     ];
 
     public function user(): BelongsTo

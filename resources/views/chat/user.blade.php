@@ -14,7 +14,45 @@
                     <div id="chat-status" class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                         <div class="flex items-center">
                             <div class="w-3 h-3 bg-blue-500 rounded-full mr-2 animate-pulse"></div>
-                            <span class="text-blue-700 font-medium">Welcome! Start typing to begin a conversation with our support team.</span>
+                            <span class="text-blue-700 font-medium">Welcome! Please select your preferred language and support area below.</span>
+                        </div>
+                    </div>
+
+                    <!-- Skill Selection Panel -->
+                    <div id="skill-selection" class="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                        <h3 class="text-lg font-semibold text-gray-800 mb-4">Support Preferences</h3>
+                        
+                        <div class="grid md:grid-cols-2 gap-4 mb-4">
+                            <!-- Language Selection -->
+                            <div>
+                                <label for="preferred-language" class="block text-sm font-medium text-gray-700 mb-2">
+                                    Preferred Language <span class="text-red-500">*</span>
+                                </label>
+                                <select id="preferred-language" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                    <option value="">Select Language</option>
+                                    <option value="SI">සිංහල (Sinhala)</option>
+                                    <option value="TI">தமிழ் (Tamil)</option>
+                                    <option value="EN">English</option>
+                                </select>
+                            </div>
+
+                            <!-- Domain Selection -->
+                            <div>
+                                <label for="preferred-domain" class="block text-sm font-medium text-gray-700 mb-2">
+                                    Support Area <span class="text-red-500">*</span>
+                                </label>
+                                <select id="preferred-domain" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                    <option value="">Select Support Area</option>
+                                    <option value="FINANCE">💰 Finance</option>
+                                    <option value="HR">👥 Human Resources</option>
+                                    <option value="IT">💻 Information Technology</option>
+                                    <option value="NETWORK">🌐 Network Support</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="text-sm text-gray-600">
+                            <p>💡 Selecting your preferred language and support area helps us connect you with the most suitable agent.</p>
                         </div>
                     </div>
 
@@ -71,6 +109,9 @@
                         currentConversationId = latestConversation.id;
                         isConversationStarted = true;
                         
+                        // Hide skill selection panel for existing conversations
+                        document.getElementById('skill-selection').style.display = 'none';
+                        
                         // Update status
                         updateChatStatus(latestConversation);
                         
@@ -90,8 +131,19 @@
             
             if (!content) return;
 
+            // Check if skill preferences are selected for new conversations
             if (!isConversationStarted) {
-                // First message - create conversation
+                const language = document.getElementById('preferred-language').value;
+                const domain = document.getElementById('preferred-domain').value;
+                
+                if (!language || !domain) {
+                    alert('Please select your preferred language and support area before starting the conversation.');
+                    return;
+                }
+            }
+
+            if (!isConversationStarted) {
+                // First message - create conversation with skill preferences
                 createConversationAndSendMessage(content);
             } else {
                 // Send message to existing conversation
@@ -102,11 +154,17 @@
         }
 
         function createConversationAndSendMessage(content) {
+            const language = document.getElementById('preferred-language').value;
+            const domain = document.getElementById('preferred-domain').value;
+            
+            // Hide skill selection panel
+            document.getElementById('skill-selection').style.display = 'none';
+            
             // Update status to show we're connecting
             document.getElementById('chat-status').innerHTML = `
                 <div class="flex items-center">
                     <div class="w-3 h-3 bg-yellow-500 rounded-full mr-2 animate-pulse"></div>
-                    <span class="text-yellow-700 font-medium">Connecting you with support...</span>
+                    <span class="text-yellow-700 font-medium">Connecting you with a ${getLanguageName(language)} speaking ${getDomainName(domain)} specialist...</span>
                 </div>
             `;
 
@@ -117,7 +175,9 @@
                     'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
                 },
                 body: JSON.stringify({
-                    title: 'Support Request'
+                    title: `${getDomainName(domain)} Support Request`,
+                    preferred_language: language,
+                    preferred_domain: domain
                 })
             })
             .then(response => response.json())
@@ -141,7 +201,8 @@
             })
             .catch(error => {
                 console.error('Error creating conversation:', error);
-                // Reset status on error
+                // Reset status on error and show skill selection again
+                document.getElementById('skill-selection').style.display = 'block';
                 document.getElementById('chat-status').innerHTML = `
                     <div class="flex items-center">
                         <div class="w-3 h-3 bg-red-500 rounded-full mr-2"></div>
@@ -274,6 +335,26 @@
         function scrollToBottom() {
             const container = document.getElementById('messages-container');
             container.scrollTop = container.scrollHeight;
+        }
+
+        // Helper functions for skill display names
+        function getLanguageName(code) {
+            const languages = {
+                'SI': 'Sinhala',
+                'TI': 'Tamil',
+                'EN': 'English'
+            };
+            return languages[code] || code;
+        }
+
+        function getDomainName(code) {
+            const domains = {
+                'FINANCE': 'Finance',
+                'HR': 'HR',
+                'IT': 'IT',
+                'NETWORK': 'Network'
+            };
+            return domains[code] || code;
         }
     </script>
     @endpush
