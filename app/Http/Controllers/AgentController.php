@@ -52,16 +52,23 @@ class AgentController extends Controller
         ->orderBy('last_activity', 'desc')
         ->get();
 
+        // Ensure unread counts are accurate for assigned conversations
+        $assignedConversations->each(function($conversation) {
+            $conversation->recalculateUnreadCount();
+        });
+
         Log::info('Assigned conversations count: ' . $assignedConversations->count());
 
         // Get waiting conversations that can be manually picked up
+        // Show all waiting conversations to all agents, regardless of skills
         $waitingConversations = Conversation::with(['user', 'messages' => function($query) {
             $query->latest()->limit(1);
         }])
         ->where('status', 'waiting')
         ->whereNull('agent_id')
-        ->orderBy('last_activity', 'desc') // Latest activity first for consistency
-        ->limit(10) // Show max 10 waiting conversations
+        ->orderBy('priority', 'desc') // Show high priority first
+        ->orderBy('last_activity', 'desc') // Then by latest activity
+        ->limit(20) // Show max 20 waiting conversations
         ->get();
 
         Log::info('Waiting conversations count: ' . $waitingConversations->count());
@@ -125,10 +132,50 @@ class AgentController extends Controller
             return response()->json(['error' => 'Agent not found'], 404);
         }
 
+        // Check if agent is busy
+        if ($agent->status === 'busy') {
+            return response()->json(['error' => 'Cannot pick up new conversations while in busy mode. Please change your status to online first.'], 403);
+        }
+
+        // Check if this is a transferred conversation
+        $wasTransferred = $conversation->is_transferred;
+        $oldAgent = $conversation->agent_id ? Agent::find($conversation->agent_id) : null;
+
         $conversation->update([
             'agent_id' => $agent->id,
             'status' => 'active'
         ]);
+
+        // Always notify the user when an agent picks up (whether new assignment or transfer)
+        if ($wasTransferred) {
+            // Send transfer completion notification
+            broadcast(new \App\Events\AgentTransferNotification($conversation, $oldAgent, $agent, 'agent_assigned'));
+            
+            // Create system message for transfer
+            $assignmentMessage = \App\Models\Message::create([
+                'conversation_id' => $conversation->id,
+                'content' => "Hi! I'm {$agent->name} and I'll be continuing to assist you. I have your full conversation history and I'm here to help!",
+                'sender_type' => 'system',
+                'sender_id' => null,
+            ]);
+            
+            // Broadcast the assignment message
+            broadcast(new \App\Events\NewMessageEvent($assignmentMessage));
+        } else {
+            // Regular assignment - notify user that agent picked up
+            broadcast(new \App\Events\AgentTransferNotification($conversation, null, $agent, 'agent_assigned'));
+            
+            // Create system message for regular assignment
+            $assignmentMessage = \App\Models\Message::create([
+                'conversation_id' => $conversation->id,
+                'content' => "Hi! I'm {$agent->name} and I'm here to help you. How can I assist you today?",
+                'sender_type' => 'system',
+                'sender_id' => null,
+            ]);
+            
+            // Broadcast the assignment message
+            broadcast(new \App\Events\NewMessageEvent($assignmentMessage));
+        }
 
         // Broadcast the assignment to all agents so they can update their lists
         broadcast(new \App\Events\NewConversationEvent($conversation->fresh()));
@@ -237,14 +284,15 @@ class AgentController extends Controller
             return response()->json(['error' => 'Agent not found'], 404);
         }
 
-        $unreadCount = Message::whereHas('conversation', function($query) use ($agent) {
-            $query->where('agent_id', $agent->id);
-        })
-        ->where('sender_type', 'user')
-        ->where('is_read', false)
-        ->count();
+        // Recalculate unread counts for all agent's conversations to ensure accuracy
+        $conversations = Conversation::where('agent_id', $agent->id)->get();
+        $totalUnread = 0;
+        
+        foreach ($conversations as $conversation) {
+            $totalUnread += $conversation->recalculateUnreadCount();
+        }
 
-        return response()->json(['unread_count' => $unreadCount]);
+        return response()->json(['unread_count' => $totalUnread]);
     }
 
     public function getConversation(Conversation $conversation)
@@ -319,6 +367,11 @@ class AgentController extends Controller
             return response()->json(['error' => 'Agent not found'], 404);
         }
 
+        // Check if agent is busy
+        if ($agent->status === 'busy') {
+            return response()->json(['error' => 'Cannot send messages while in busy mode. Please change your status to online first.'], 403);
+        }
+
         $request->validate([
             'conversation_id' => 'required|exists:conversations,id',
             'content' => 'required|string|max:1000'
@@ -342,6 +395,12 @@ class AgentController extends Controller
             'sender_type' => 'agent',
             'sender_id' => $agent->id,
         ]);
+
+        // Mark all user messages in this conversation as read since agent is replying
+        $conversation->messages()
+            ->where('sender_type', 'user')
+            ->where('is_read', false)
+            ->update(['is_read' => true, 'read_at' => now()]);
 
         // Update conversation last activity and reset unread count
         // Agent is actively replying, so all messages are considered read

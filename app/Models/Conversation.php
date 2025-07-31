@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Log;
 
 class Conversation extends Model
 {
@@ -22,12 +23,17 @@ class Conversation extends Model
         'skill_requirements',
         'language_match_score',
         'domain_match_score',
-        'unread_count'
+        'unread_count',
+        'is_transferred',
+        'transfer_count',
+        'last_transferred_at'
     ];
 
     protected $casts = [
         'last_activity' => 'datetime',
-        'skill_requirements' => 'array'
+        'skill_requirements' => 'array',
+        'last_transferred_at' => 'datetime',
+        'is_transferred' => 'boolean'
     ];
 
     public function user(): BelongsTo
@@ -74,6 +80,26 @@ class Conversation extends Model
         $count = $this->getUnreadCountForAgent();
         $this->update(['unread_count' => $count]);
         return $count;
+    }
+
+    /**
+     * Recalculate and fix unread count (ensures system messages are not counted)
+     */
+    public function recalculateUnreadCount()
+    {
+        // Force recalculation by counting only user messages that are unread
+        $correctCount = $this->messages()
+            ->where('is_read', false)
+            ->where('sender_type', 'user')
+            ->count();
+        
+        // Update the stored count if it's different
+        if ($this->unread_count !== $correctCount) {
+            $this->update(['unread_count' => $correctCount]);
+            Log::info("Fixed unread count for conversation {$this->id}: was {$this->unread_count}, now {$correctCount}");
+        }
+        
+        return $correctCount;
     }
 
     /**

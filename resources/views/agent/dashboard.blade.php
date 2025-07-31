@@ -279,6 +279,13 @@
                             // Redirect to login page
                             window.location.href = '/login';
                         });
+
+                        agentChannel.listen('.conversation-handoff', (e) => {
+                            console.log('📝 Conversation handoff received:', e);
+                            showHandoffNotification(e);
+                            updateUnreadCount();
+                            loadConversations();
+                        });
                     @else
                         console.warn('⚠️ No agent found for current user');
                     @endif
@@ -466,6 +473,25 @@
                 statusIndicator.className = 'w-3 h-3 rounded-full mr-2 bg-amber-500';
                 statusDescription.textContent = 'Handling current conversations only';
             }
+            
+            // Update pickup buttons based on status
+            updatePickupButtons(status);
+        }
+
+        function updatePickupButtons(status) {
+            // Disable/enable pickup buttons based on agent status
+            const pickupButtons = document.querySelectorAll('[id^="pickup-btn-"]');
+            pickupButtons.forEach(button => {
+                if (status === 'busy') {
+                    button.disabled = true;
+                    button.className = 'ml-2 px-3 py-1 bg-gray-400 text-white text-xs rounded cursor-not-allowed opacity-50';
+                    button.title = 'Change status to online to pick up conversations';
+                } else {
+                    button.disabled = false;
+                    button.className = 'ml-2 px-3 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600 transition-colors';
+                    button.title = 'Pick up this conversation';
+                }
+            });
         }
 
         function updateStatus(status) {
@@ -510,6 +536,9 @@
                             const div = createConversationDiv(conversation, conversation.isAssigned);
                             container.appendChild(div);
                         });
+                        
+                        // Update pickup buttons based on current agent status
+                        updatePickupButtons(currentStatus);
                     } else {
                         container.innerHTML = '<div class="text-center text-gray-500 py-8">No conversations available</div>';
                     }
@@ -524,9 +553,10 @@
         function createConversationDiv(conversation, isAssigned) {
             const div = document.createElement('div');
             const isClosed = conversation.status === 'closed';
-            const canAccess = isAssigned || conversation.agent_id === null; // Can access if assigned to me or unassigned
+            const canAccess = isAssigned || (conversation.agent_id === null && currentStatus !== 'busy'); // Can access if assigned to me or unassigned AND not busy
+            const isTransferred = conversation.is_transferred || false;
             
-            // Apply different styling for closed conversations and access restrictions
+            // Apply different styling for closed conversations, transferred conversations, and access restrictions
             const baseClasses = 'border rounded p-3 mb-2 transition-all duration-200';
             let statusClasses;
             
@@ -534,6 +564,8 @@
                 statusClasses = 'bg-gray-100 border-gray-300 opacity-75 cursor-default';
             } else if (!canAccess) {
                 statusClasses = 'bg-red-50 border-red-200 opacity-60 cursor-not-allowed';
+            } else if (isTransferred) {
+                statusClasses = `hover:bg-orange-50 cursor-pointer hover:shadow-sm ${isAssigned ? 'bg-orange-100 border-orange-300' : 'bg-orange-50 border-orange-200'}`;
             } else {
                 statusClasses = `hover:bg-gray-50 cursor-pointer hover:shadow-sm ${isAssigned ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'}`;
             }
@@ -562,6 +594,13 @@
                     return '<span class="px-2 py-1 bg-gray-200 text-gray-600 text-xs rounded-full font-medium">CLOSED</span>';
                 } else if (!canAccess) {
                     return '<span class="px-2 py-1 bg-red-100 text-red-700 text-xs rounded-full font-medium">RESTRICTED</span>';
+                } else if (isTransferred) {
+                    const transferBadge = '<span class="px-2 py-1 bg-orange-200 text-orange-800 text-xs rounded-full font-medium">TRANSFERRED</span>';
+                    if (isAssigned) {
+                        return transferBadge + ' <span class="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full font-medium ml-1">ASSIGNED</span>';
+                    } else {
+                        return transferBadge + ' <span class="px-2 py-1 bg-orange-100 text-orange-700 text-xs rounded-full font-medium ml-1">WAITING</span>';
+                    }
                 } else if (isAssigned) {
                     return '<span class="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full font-medium">ASSIGNED</span>';
                 } else {
@@ -572,7 +611,8 @@
             // Pick up button for waiting conversations
             const pickupButton = (!isAssigned && !isClosed && canAccess) 
                 ? `<button onclick="assignConversation(${conversation.id})" 
-                          class="ml-2 px-3 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600 transition-colors">
+                          class="ml-2 px-3 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600 transition-colors"
+                          id="pickup-btn-${conversation.id}">
                       Pick Up
                    </button>`
                 : '';
@@ -815,6 +855,12 @@
                 return;
             }
 
+            // Check if agent is busy
+            if (currentStatus === 'busy') {
+                showNotification('Cannot send messages while in busy mode. Please change your status to online first.', 'error');
+                return;
+            }
+
             const input = document.getElementById('message-input');
             const content = input.value.trim();
             
@@ -857,11 +903,17 @@
             })
             .catch(error => {
                 console.error('Error sending message:', error);
-                showNotification(error.message || 'Failed to send message');
+                showNotification(error.message || 'Failed to send message', 'error');
             });
         }
 
         function assignConversation(conversationId) {
+            // Check if agent is busy
+            if (currentStatus === 'busy') {
+                showNotification('Cannot pick up new conversations while in busy mode. Please change your status to online first.', 'error');
+                return;
+            }
+            
             fetch(`/agent/conversation/${conversationId}/assign`, {
                 method: 'POST',
                 headers: {
@@ -871,31 +923,147 @@
             })
             .then(response => response.json())
             .then(data => {
-                showNotification('Conversation assigned successfully');
-                loadConversations();
+                if (data.error) {
+                    showNotification(data.error, 'error');
+                } else {
+                    showNotification('Conversation assigned successfully');
+                    loadConversations();
+                }
             })
-            .catch(error => console.error('Error assigning conversation:', error));
+            .catch(error => {
+                console.error('Error assigning conversation:', error);
+                showNotification('Failed to assign conversation', 'error');
+            });
         }
 
         function updateUnreadCount() {
             fetch('/agent/unread-count')
                 .then(response => response.json())
                 .then(data => {
-                    document.getElementById('unread-count').textContent = data.unread_count;
+                    const unreadElement = document.getElementById('unread-count');
+                    const count = data.unread_count || 0;
+                    unreadElement.textContent = count;
+                    
+                    // Update the text to be grammatically correct
+                    const messageText = unreadElement.parentElement.querySelector('p');
+                    if (messageText) {
+                        messageText.innerHTML = `You have <span id="unread-count" class="font-bold">${count}</span> unread ${count === 1 ? 'message' : 'messages'}`;
+                    }
                 })
                 .catch(error => console.error('Error updating unread count:', error));
         }
 
-        function showNotification(message) {
+        function showHandoffNotification(handoffData) {
+            console.log('📋 Showing handoff notification:', handoffData);
+            
+            // Create detailed handoff notification modal
+            const modal = document.createElement('div');
+            modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+            modal.id = 'handoff-modal';
+            
+            const summary = handoffData.handoff_summary;
+            
+            modal.innerHTML = `
+                <div class="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-lg font-semibold text-gray-900 flex items-center">
+                            <svg class="w-6 h-6 text-blue-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path>
+                            </svg>
+                            Conversation Transferred
+                        </h3>
+                        <button onclick="closeHandoffModal()" class="text-gray-400 hover:text-gray-600">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    
+                    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                        <p class="text-blue-800 font-medium">${handoffData.alert_message}</p>
+                        <p class="text-blue-600 text-sm mt-1">Priority: ${summary.priority_level}</p>
+                    </div>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div class="bg-gray-50 rounded-lg p-3">
+                            <h4 class="font-medium text-gray-900 mb-2">Customer Information</h4>
+                            <p class="text-sm text-gray-600">Name: <span class="font-medium">${summary.customer_name}</span></p>
+                            <p class="text-sm text-gray-600">Email: <span class="font-medium">${summary.customer_email}</span></p>
+                            <p class="text-sm text-gray-600">Status: <span class="font-medium">${summary.customer_status}</span></p>
+                        </div>
+                        
+                        <div class="bg-gray-50 rounded-lg p-3">
+                            <h4 class="font-medium text-gray-900 mb-2">Conversation Details</h4>
+                            <p class="text-sm text-gray-600">Topic: <span class="font-medium">${summary.conversation_topic}</span></p>
+                            <p class="text-sm text-gray-600">Duration: <span class="font-medium">${summary.conversation_duration}</span></p>
+                            <p class="text-sm text-gray-600">Messages: <span class="font-medium">${summary.message_count}</span></p>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-gray-50 rounded-lg p-3 mb-4">
+                        <h4 class="font-medium text-gray-900 mb-2">Last Message</h4>
+                        <p class="text-sm text-gray-600">${summary.last_message_time}</p>
+                        <p class="text-sm text-gray-700 mt-1 italic">"${summary.last_message_preview}"</p>
+                    </div>
+                    
+                    <div class="bg-green-50 border border-green-200 rounded-lg p-3 mb-4">
+                        <h4 class="font-medium text-green-900 mb-2">Suggested Greeting</h4>
+                        <p class="text-sm text-green-800">${handoffData.suggested_greeting}</p>
+                    </div>
+                    
+                    <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
+                        <h4 class="font-medium text-yellow-900 mb-2">Recommended Actions</h4>
+                        <ul class="text-sm text-yellow-800 list-disc list-inside">
+                            ${summary.suggested_actions.map(action => `<li>${action}</li>`).join('')}
+                        </ul>
+                    </div>
+                    
+                    <div class="flex justify-end space-x-3">
+                        <button onclick="closeHandoffModal()" class="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">
+                            Review Later
+                        </button>
+                        <button onclick="openConversation(${handoffData.conversation_id}); closeHandoffModal();" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                            Open Conversation
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+            
+            // Show toast notification as well
+            showNotification(`New transfer: ${summary.customer_name} - ${summary.conversation_topic}`);
+        }
+
+        function closeHandoffModal() {
+            const modal = document.getElementById('handoff-modal');
+            if (modal) {
+                modal.remove();
+            }
+        }
+
+        function showNotification(message, type = 'info') {
             // Simple notification - you can replace with a better notification library
             const notification = document.createElement('div');
-            notification.className = 'fixed top-4 right-4 bg-blue-500 text-white px-4 py-2 rounded shadow-lg z-50';
+            let bgColor = 'bg-blue-500';
+            
+            if (type === 'error') {
+                bgColor = 'bg-red-500';
+            } else if (type === 'success') {
+                bgColor = 'bg-green-500';
+            } else if (type === 'warning') {
+                bgColor = 'bg-yellow-500';
+            }
+            
+            notification.className = `fixed top-4 right-4 ${bgColor} text-white px-4 py-2 rounded shadow-lg z-50`;
             notification.textContent = message;
             document.body.appendChild(notification);
             
             setTimeout(() => {
-                document.body.removeChild(notification);
-            }, 3000);
+                if (document.body.contains(notification)) {
+                    document.body.removeChild(notification);
+                }
+            }, 5000);
         }
     </script>
     @endpush

@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Events\NewMessageEvent;
+use App\Events\AgentTransferNotification;
+use App\Events\AgentHandoffNotification;
 use App\Models\Agent;
 use App\Models\Conversation;
 use App\Models\Message;
@@ -221,6 +223,9 @@ class ConversationAssignmentService
 
         // Broadcast the assignment to all agents so they can update their lists
         broadcast(new \App\Events\NewConversationEvent($conversation->fresh()));
+        
+        // Broadcast assignment to the user so they know an agent picked up
+        broadcast(new \App\Events\AgentTransferNotification($conversation, null, $agent, 'agent_assigned'));
     }
 
     /**
@@ -321,31 +326,190 @@ class ConversationAssignmentService
         $redistributedCount = 0;
 
         foreach ($activeConversations as $conversation) {
-            // Reset conversation to waiting status
+            // Generate handoff summary for the new agent
+            $handoffSummary = $this->generateHandoffSummary($conversation, $agent);
+            
+            // Store original agent info before reassignment
+            $originalAgent = $agent;
+            
+            // Mark conversation as transferred
             $conversation->update([
                 'agent_id' => null,
                 'status' => 'waiting',
-                'last_activity' => now()
+                'last_activity' => now(),
+                'priority' => 'high', // Mark as high priority due to transfer
+                'is_transferred' => true,
+                'transfer_count' => $conversation->transfer_count + 1,
+                'last_transferred_at' => now()
             ]);
 
-            // Try to reassign immediately
-            $newAgent = $this->autoAssignConversation($conversation);
+            // Notify customer about agent transfer (before finding new agent)
+            broadcast(new AgentTransferNotification($conversation, $originalAgent, null, 'agent_disconnect'));
+            
+            // Try to reassign immediately - first to skilled agents, then to any available agent
+            $newAgent = $this->findBestAgentForTransfer($conversation, 'high');
             
             if ($newAgent) {
-                $redistributedCount++;
-            } else {
-                // Create system message explaining the situation
-                Message::create([
+                $conversation->update([
+                    'agent_id' => $newAgent->id,
+                    'status' => 'active'
+                ]);
+                
+                // Send customer notification with new agent info
+                broadcast(new AgentTransferNotification($conversation, $originalAgent, $newAgent, 'agent_disconnect'));
+                
+                // Notify new agent with handoff summary
+                broadcast(new AgentHandoffNotification($conversation, $newAgent, $handoffSummary));
+                
+                // Create system message introducing new agent
+                $introMessage = Message::create([
                     'conversation_id' => $conversation->id,
-                    'content' => 'Your previous agent is no longer available. Please wait while we connect you to another agent.',
+                    'content' => "Hi! I'm {$newAgent->name} and I'll be continuing to assist you. {$originalAgent->name} had to step away, but I have your full conversation history and I'm here to help!",
                     'sender_type' => 'system',
                     'sender_id' => null,
                 ]);
+                
+                // Broadcast the intro message
+                broadcast(new NewMessageEvent($introMessage));
+                
+                // Ensure unread count only includes user messages
+                $conversation->updateUnreadCount();
+                
+                $redistributedCount++;
+                
+                Log::info("Successfully transferred conversation {$conversation->id} from {$originalAgent->name} to {$newAgent->name}");
+            } else {
+                // No agents available immediately - send user message and make available to all agents
+                $waitingMessage = Message::create([
+                    'conversation_id' => $conversation->id,
+                    'content' => 'Your previous agent had to step away. We\'re finding another qualified agent to assist you. Please hold on for a moment.',
+                    'sender_type' => 'system',
+                    'sender_id' => null,
+                ]);
+                
+                // Broadcast the waiting message
+                broadcast(new NewMessageEvent($waitingMessage));
+                
+                // Send transfer notification to user indicating waiting status
+                broadcast(new AgentTransferNotification($conversation, $originalAgent, null, 'finding_agent'));
+                
+                // Broadcast to agents that a new conversation is available for pickup
+                broadcast(new \App\Events\NewConversationEvent($conversation->fresh()));
+                
+                // Ensure unread count only includes user messages
+                $conversation->updateUnreadCount();
+                
+                Log::warning("No available agents for conversation {$conversation->id} transfer - conversation marked as waiting for any agent");
             }
         }
 
         Log::info("Redistributed {$redistributedCount} conversations from offline agent {$agent->id}");
 
         return $redistributedCount;
+    }
+
+    /**
+     * Generate a comprehensive handoff summary for the new agent
+     */
+    private function generateHandoffSummary(Conversation $conversation, Agent $originalAgent): array
+    {
+        $messageCount = $conversation->messages()->count();
+        $duration = $conversation->created_at->diffInMinutes(now());
+        $lastMessage = $conversation->messages()->latest()->first();
+        
+        return [
+            'customer_name' => $conversation->user->name ?? 'Customer',
+            'customer_email' => $conversation->user->email ?? 'N/A',
+            'conversation_topic' => $conversation->topic ?? 'General inquiry',
+            'conversation_duration' => $duration . ' minutes',
+            'message_count' => $messageCount,
+            'last_message_time' => $lastMessage ? $lastMessage->created_at->diffForHumans() : 'No messages',
+            'last_message_preview' => $lastMessage ? substr($lastMessage->content, 0, 100) . '...' : 'No messages yet',
+            'original_agent' => $originalAgent->name,
+            'transfer_reason' => 'agent_disconnect',
+            'priority_level' => 'high',
+            'customer_status' => $this->getCustomerStatus($conversation),
+            'suggested_actions' => $this->getSuggestedActions($conversation)
+        ];
+    }
+
+    /**
+     * Determine customer status based on conversation history
+     */
+    private function getCustomerStatus(Conversation $conversation): string
+    {
+        $messageCount = $conversation->messages()->count();
+        $duration = $conversation->created_at->diffInMinutes(now());
+        
+        if ($duration > 30) {
+            return 'Long conversation - may need escalation';
+        } elseif ($messageCount > 20) {
+            return 'High engagement - complex issue';
+        } elseif ($messageCount < 3) {
+            return 'New conversation - just started';
+        } else {
+            return 'Standard conversation';
+        }
+    }
+
+    /**
+     * Generate suggested actions for the new agent
+     */
+    private function getSuggestedActions(Conversation $conversation): array
+    {
+        $actions = [];
+        $messageCount = $conversation->messages()->count();
+        $duration = $conversation->created_at->diffInMinutes(now());
+        
+        // Standard greeting
+        $actions[] = 'Introduce yourself and acknowledge the transfer';
+        
+        // Based on conversation length
+        if ($messageCount > 10) {
+            $actions[] = 'Review conversation history for context';
+            $actions[] = 'Summarize understanding of the issue';
+        }
+        
+        // Based on duration
+        if ($duration > 20) {
+            $actions[] = 'Apologize for the wait and transfer';
+            $actions[] = 'Consider escalation if needed';
+        }
+        
+        // Always include
+        $actions[] = 'Ask how you can best assist them';
+        
+        return $actions;
+    }
+
+    /**
+     * Find the best agent for transferring a conversation
+     * First tries skilled agents, then falls back to any available agent
+     */
+    private function findBestAgentForTransfer(Conversation $conversation, string $priority = 'normal'): ?Agent
+    {
+        // First try to find skilled agents
+        $skilledAgent = $this->findBestAvailableAgentWithSkills($conversation, $priority);
+        
+        if ($skilledAgent) {
+            Log::info("Found skilled agent {$skilledAgent->id} for transfer of conversation {$conversation->id}");
+            return $skilledAgent;
+        }
+        
+        // Only fallback to basic assignment if no specific skills are required
+        // If both language AND domain are specified, we require strict skill matching even for transfers
+        if (!$conversation->preferred_language && !$conversation->preferred_domain) {
+            $anyAgent = $this->findBestAvailableAgent($priority);
+            
+            if ($anyAgent) {
+                Log::info("Found general agent {$anyAgent->id} for transfer of conversation {$conversation->id} (no skill requirements)");
+                return $anyAgent;
+            }
+        } else {
+            Log::warning("No skilled agents available for transfer of conversation {$conversation->id} with language: {$conversation->preferred_language}, domain: {$conversation->preferred_domain} - maintaining skill requirements");
+        }
+        
+        Log::warning("No suitable agents available for transfer of conversation {$conversation->id}");
+        return null;
     }
 }

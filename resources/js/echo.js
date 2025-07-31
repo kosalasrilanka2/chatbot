@@ -13,6 +13,12 @@ window.Echo = new Echo({
     enabledTransports: ['ws', 'wss'],
     enableLogging: true,
     logToConsole: true,
+    auth: {
+        headers: {
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content'),
+        },
+    },
+    authEndpoint: '/broadcasting/auth',
 });
 
 // Add connection event listeners for debugging

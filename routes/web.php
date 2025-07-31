@@ -5,6 +5,10 @@ use App\Http\Controllers\ChatController;
 use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Broadcast;
+
+// Broadcasting Auth Routes
+Broadcast::routes(['middleware' => ['web', 'auth']]);
 
 Route::get('/', function () {
     return view('welcome');

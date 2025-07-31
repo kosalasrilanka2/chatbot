@@ -93,12 +93,37 @@
 
     @push('scripts')
     <script>
+        // Global variables
+        const currentUserId = {{ auth()->id() ?? 'null' }};
         let currentConversationId = null;
         let isConversationStarted = false;
         let channel = null;
+        let userChannel = null;
+        let transferNotifications = new Set(); // Track transfer notifications for debugging
+        
+        console.log('🔍 Current user ID:', currentUserId);
 
         // Initialize when page loads
         document.addEventListener('DOMContentLoaded', function() {
+            // Subscribe to user channel for transfer notifications
+            if (currentUserId && typeof window.Echo !== 'undefined') {
+                console.log('🔊 USER: Subscribing to user channel:', `user.${currentUserId}`);
+                userChannel = window.Echo.private(`user.${currentUserId}`);
+                
+                userChannel.subscribed(() => {
+                    console.log('✅ USER: Successfully subscribed to user channel');
+                });
+                
+                userChannel.listen('.agent-transfer', (e) => {
+                    console.log('🔄 USER: Transfer notification from user channel:', e);
+                    handleAgentTransfer(e);
+                });
+                
+                userChannel.error((error) => {
+                    console.error('❌ USER: User channel error:', error);
+                });
+            }
+            
             // Check if user has an active conversation
             checkExistingConversation();
             
@@ -309,6 +334,27 @@
             channel.listen('.message.new', (e) => {
                 console.log('🔔 USER: New message received:', e);
                 appendMessage(e.message);
+                
+                // If this is a system message from a new agent joining, it might indicate a successful transfer
+                if (e.message.sender_type === 'system' && e.message.content.includes("I'm") && e.message.content.includes("continuing to assist")) {
+                    console.log('🔄 Detected agent assignment through system message');
+                    // This indicates an agent has been assigned, let's check for existing transfer notifications
+                    setTimeout(() => {
+                        const existingWaitingNotifications = document.querySelectorAll('[data-transfer-notification] .bg-yellow-50');
+                        if (existingWaitingNotifications.length > 0) {
+                            console.log('🗑️ Removing waiting notifications due to agent assignment');
+                            existingWaitingNotifications.forEach(notification => {
+                                const parentDiv = notification.closest('[data-transfer-notification]');
+                                if (parentDiv) parentDiv.remove();
+                            });
+                        }
+                    }, 100);
+                }
+            });
+
+            channel.listen('.agent-transfer', (e) => {
+                console.log('🔄 USER: Agent transfer notification:', e);
+                handleAgentTransfer(e);
             });
 
             channel.error((error) => {
@@ -472,6 +518,151 @@
 
             // Clear message input
             document.getElementById('message-input').value = '';
+        }
+
+        function handleAgentTransfer(transferData) {
+            console.log('🔄 Handling agent transfer:', transferData);
+            console.log('🔍 Transfer data details:', {
+                new_agent: transferData.new_agent,
+                old_agent: transferData.old_agent,
+                transfer_reason: transferData.transfer_reason,
+                conversation_id: transferData.conversation_id
+            });
+            
+            const messagesContainer = document.getElementById('messages-container');
+            
+            // Remove any existing transfer notifications
+            const existingTransferNotifications = messagesContainer.querySelectorAll('[data-transfer-notification]');
+            console.log('🗑️ Found existing transfer notifications:', existingTransferNotifications.length);
+            existingTransferNotifications.forEach(notification => {
+                console.log('🗑️ Removing transfer notification:', notification);
+                notification.remove();
+            });
+            
+            // Create transfer notification element
+            const transferNotification = document.createElement('div');
+            transferNotification.className = 'flex justify-center my-4';
+            transferNotification.setAttribute('data-transfer-notification', 'true');
+            
+            let notificationContent = '';
+            
+            if (transferData.new_agent) {
+                console.log('✅ New agent assigned:', transferData.new_agent.name);
+                // Agent successfully transferred/assigned
+                const isNewAssignment = transferData.transfer_reason === 'agent_assigned';
+                const headerText = isNewAssignment ? 'Connected!' : 'Agent Transfer';
+                const messageText = isNewAssignment ? 
+                    `<strong>${transferData.new_agent.name}</strong> is now attending to your conversation` :
+                    `You've been connected to <strong>${transferData.new_agent.name}</strong>
+                     ${transferData.old_agent ? ` (taking over from ${transferData.old_agent.name})` : ''}`;
+                
+                notificationContent = `
+                    <div class="bg-green-50 border border-green-200 rounded-lg p-4 max-w-md text-center">
+                        <div class="flex items-center justify-center mb-2">
+                            <svg class="w-5 h-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            <span class="text-green-700 font-medium">${headerText}</span>
+                        </div>
+                        <p class="text-green-600 text-sm">
+                            ${messageText}
+                        </p>
+                    </div>
+                `;
+                
+                // Update status bar with new agent
+                updateChatStatus(null, true, transferData.new_agent.name);
+                
+                // Show success notification
+                const toastMessage = isNewAssignment ? 
+                    `${transferData.new_agent.name} joined the conversation` :
+                    `Connected to ${transferData.new_agent.name}`;
+                showTransferToast('success', toastMessage);
+                
+            } else {
+                console.log('⏳ Waiting for agent assignment');
+                // Agent disconnected, waiting for new agent
+                const isInitialTransfer = transferData.transfer_reason === 'finding_agent';
+                const waitingMessage = isInitialTransfer ? 
+                    'Finding a new agent to assist you. Please hold on...' : 
+                    'Finding another agent to assist you. Please hold on...';
+                
+                notificationContent = `
+                    <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 max-w-md text-center">
+                        <div class="flex items-center justify-center mb-2">
+                            <svg class="w-5 h-5 text-yellow-500 mr-2 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                            </svg>
+                            <span class="text-yellow-700 font-medium">Finding Agent...</span>
+                        </div>
+                        <p class="text-yellow-600 text-sm">
+                            ${waitingMessage}
+                        </p>
+                    </div>
+                `;
+                
+                // Update status bar to show waiting
+                const statusDiv = document.getElementById('chat-status');
+                statusDiv.innerHTML = `
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center">
+                            <div class="w-3 h-3 bg-yellow-500 rounded-full mr-2 animate-pulse"></div>
+                            <span class="text-yellow-700 font-medium">Finding a new agent to assist you...</span>
+                        </div>
+                    </div>
+                `;
+                
+                // Show waiting notification
+                showTransferToast('info', 'Finding a new agent...');
+            }
+            
+            transferNotification.innerHTML = notificationContent;
+            messagesContainer.appendChild(transferNotification);
+            console.log('➕ Added new transfer notification to messages container');
+            scrollToBottom();
+        }
+
+        // Helper function to clear transfer notifications (for debugging)
+        function clearTransferNotifications() {
+            const messagesContainer = document.getElementById('messages-container');
+            const notifications = messagesContainer.querySelectorAll('[data-transfer-notification]');
+            console.log('🧹 Manually clearing', notifications.length, 'transfer notifications');
+            notifications.forEach(notification => notification.remove());
+        }
+
+        function showTransferToast(type, message) {
+            // Create toast notification
+            const toast = document.createElement('div');
+            toast.className = `fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg transform transition-all duration-300 translate-x-full`;
+            
+            const bgColor = type === 'success' ? 'bg-green-500' : type === 'info' ? 'bg-blue-500' : 'bg-yellow-500';
+            toast.className += ` ${bgColor} text-white`;
+            
+            const icon = type === 'success' ? '✅' : type === 'info' ? 'ℹ️' : '⏳';
+            
+            toast.innerHTML = `
+                <div class="flex items-center">
+                    <span class="mr-2">${icon}</span>
+                    <span>${message}</span>
+                </div>
+            `;
+            
+            document.body.appendChild(toast);
+            
+            // Animate in
+            setTimeout(() => {
+                toast.classList.remove('translate-x-full');
+            }, 100);
+            
+            // Auto remove after 5 seconds
+            setTimeout(() => {
+                toast.classList.add('translate-x-full');
+                setTimeout(() => {
+                    if (toast.parentNode) {
+                        toast.parentNode.removeChild(toast);
+                    }
+                }, 300);
+            }, 5000);
         }
     </script>
     @endpush
