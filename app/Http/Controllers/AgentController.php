@@ -23,6 +23,12 @@ class AgentController extends Controller
             return redirect()->route('dashboard')->with('error', 'Agent profile not found. Please contact administrator.');
         }
         
+        // Automatically set agent status to online when they access the dashboard
+        $agent->update([
+            'status' => 'online',
+            'last_seen' => now()
+        ]);
+        
         return view('agent.dashboard', compact('agent'));
     }
 
@@ -80,7 +86,7 @@ class AgentController extends Controller
         }
 
         $request->validate([
-            'status' => 'required|in:online,offline,busy'
+            'status' => 'required|in:online,busy'
         ]);
 
         $previousStatus = $agent->status;
@@ -253,5 +259,33 @@ class AgentController extends Controller
                 'is_read' => $message->is_read,
             ]
         ]);
+    }
+
+    public function logout(Request $request)
+    {
+        $agent = Agent::where('email', Auth::user()->email)->first();
+        
+        if ($agent) {
+            // Set agent status to offline before logout
+            $agent->update([
+                'status' => 'offline',
+                'last_seen' => now()
+            ]);
+            
+            // Broadcast status change
+            broadcast(new AgentStatusUpdated($agent));
+            
+            // Handle conversation redistribution if needed
+            $assignmentService = new ConversationAssignmentService();
+            $assignmentService->redistributeConversationsFromOfflineAgent($agent);
+        }
+        
+        // Perform the actual logout
+        Auth::guard('web')->logout();
+        
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
+        
+        return redirect('/');
     }
 }

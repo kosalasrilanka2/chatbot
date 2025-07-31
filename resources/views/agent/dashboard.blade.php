@@ -81,21 +81,16 @@
                             <!-- Agent Status Controls -->
                             <div class="mb-6">
                                 <h3 class="text-lg font-medium mb-4">Agent Status</h3>
-                                <div class="flex space-x-4">
-                                    <button onclick="updateStatus('online')" 
-                                            class="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600">
-                                        Online
+                                <div class="flex items-center space-x-4">
+                                    <button id="status-toggle-btn" onclick="toggleStatus()" 
+                                            class="px-6 py-3 text-white rounded-lg font-medium transition-colors duration-200 shadow-sm hover:shadow-md">
+                                        <span id="status-text">Online</span>
                                     </button>
-                                    <button onclick="updateStatus('busy')" 
-                                            class="px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600">
-                                        Busy
-                                    </button>
-                                    <button onclick="updateStatus('offline')" 
-                                            class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600">
-                                        Offline
-                                    </button>
+                                    <div class="flex items-center">
+                                        <div id="status-indicator" class="w-3 h-3 rounded-full mr-2"></div>
+                                        <span id="status-description" class="text-sm text-gray-600">Available for new conversations</span>
+                                    </div>
                                 </div>
-                                <div id="current-status" class="mt-2 text-sm text-gray-600"></div>
                             </div>
 
                             <!-- Unread Messages Counter -->
@@ -283,9 +278,26 @@
             // Load initial data
             loadConversations();
             updateUnreadCount();
+
+            // Set initial status based on agent's current status in database
+            @if($agent)
+                currentStatus = '{{ $agent->status }}';
+                updateStatusUI('{{ $agent->status }}');
+            @else
+                // Set initial status to online if no specific status found
+                updateAgentStatus('online');
+                updateStatusUI('online');
+            @endif
         });
 
-        function updateStatus(status) {
+        let currentStatus = 'online'; // Initialize as online
+
+        function toggleStatus() {
+            const newStatus = currentStatus === 'online' ? 'busy' : 'online';
+            updateAgentStatus(newStatus);
+        }
+
+        function updateAgentStatus(status) {
             fetch('/agent/status', {
                 method: 'POST',
                 headers: {
@@ -296,10 +308,42 @@
             })
             .then(response => response.json())
             .then(data => {
-                document.getElementById('current-status').textContent = `Current Status: ${status}`;
-                showNotification(`Status updated to ${status}`);
+                if (data.message) {
+                    currentStatus = status;
+                    updateStatusUI(status);
+                    showNotification(`Status updated to ${status}`);
+                } else {
+                    showNotification('Failed to update status', 'error');
+                }
             })
-            .catch(error => console.error('Error updating status:', error));
+            .catch(error => {
+                console.error('Error updating status:', error);
+                showNotification('Failed to update status', 'error');
+            });
+        }
+
+        function updateStatusUI(status) {
+            const button = document.getElementById('status-toggle-btn');
+            const statusText = document.getElementById('status-text');
+            const statusIndicator = document.getElementById('status-indicator');
+            const statusDescription = document.getElementById('status-description');
+
+            if (status === 'online') {
+                button.className = 'px-6 py-3 text-white rounded-lg font-medium transition-colors duration-200 shadow-sm hover:shadow-md bg-green-500 hover:bg-green-600';
+                statusText.textContent = 'Online';
+                statusIndicator.className = 'w-3 h-3 rounded-full mr-2 bg-green-500 animate-pulse';
+                statusDescription.textContent = 'Available for new conversations';
+            } else if (status === 'busy') {
+                button.className = 'px-6 py-3 text-white rounded-lg font-medium transition-colors duration-200 shadow-sm hover:shadow-md bg-amber-500 hover:bg-amber-600';
+                statusText.textContent = 'Busy';
+                statusIndicator.className = 'w-3 h-3 rounded-full mr-2 bg-amber-500';
+                statusDescription.textContent = 'Handling current conversations only';
+            }
+        }
+
+        function updateStatus(status) {
+            // Keep this function for backward compatibility but redirect to new function
+            updateAgentStatus(status);
         }
 
         function loadConversations() {

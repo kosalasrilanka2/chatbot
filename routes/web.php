@@ -141,6 +141,7 @@ Route::middleware('auth')->prefix('agent')->group(function () {
     Route::post('/status', [AgentController::class, 'updateStatus'])->name('agent.update-status');
     Route::post('/conversation/{conversation}/assign', [AgentController::class, 'assignConversation'])->name('agent.assign-conversation');
     Route::get('/unread-count', [AgentController::class, 'getUnreadCount'])->name('agent.unread-count');
+    Route::post('/logout', [AgentController::class, 'logout'])->name('agent.logout');
 });
 
 // Admin routes (no authentication required)
