@@ -60,7 +60,7 @@ class AgentController extends Controller
         }])
         ->where('status', 'waiting')
         ->whereNull('agent_id')
-        ->orderBy('created_at', 'asc') // Oldest first for fairness
+        ->orderBy('last_activity', 'desc') // Latest activity first for consistency
         ->limit(10) // Show max 10 waiting conversations
         ->get();
 
@@ -136,6 +136,99 @@ class AgentController extends Controller
         return response()->json(['message' => 'Conversation assigned successfully']);
     }
 
+    public function heartbeat(Request $request)
+    {
+        $agent = Agent::where('email', Auth::user()->email)->first();
+        
+        if (!$agent) {
+            return response()->json(['error' => 'Agent not found'], 404);
+        }
+
+        // Update last_seen timestamp and status
+        $agent->update([
+            'last_seen' => now(),
+            'status' => $request->input('status', $agent->status)
+        ]);
+
+        return response()->json([
+            'message' => 'Heartbeat received',
+            'timestamp' => now()->toISOString()
+        ]);
+    }
+
+    public function setOffline(Request $request)
+    {
+        $agent = Agent::where('email', Auth::user()->email)->first();
+        
+        if (!$agent) {
+            return response()->json(['error' => 'Agent not found'], 404);
+        }
+
+        $reason = $request->input('reason', 'manual');
+        
+        // Set agent offline
+        $agent->update([
+            'status' => 'offline',
+            'last_seen' => now()
+        ]);
+
+        // Broadcast status change
+        broadcast(new \App\Events\AgentStatusUpdated($agent));
+
+        // If this was due to disconnection, redistribute their conversations
+        if (in_array($reason, ['browser_close', 'network_disconnect', 'timeout'])) {
+            $assignmentService = new ConversationAssignmentService();
+            $redistributedCount = $assignmentService->redistributeConversationsFromOfflineAgent($agent);
+            
+            return response()->json([
+                'message' => 'Agent set offline',
+                'reason' => $reason,
+                'redistributed_conversations' => $redistributedCount
+            ]);
+        }
+
+        return response()->json([
+            'message' => 'Agent set offline',
+            'reason' => $reason
+        ]);
+    }
+
+    public function forceLogout(Request $request)
+    {
+        $agent = Agent::where('email', Auth::user()->email)->first();
+        
+        if (!$agent) {
+            return response()->json(['error' => 'Agent not found'], 404);
+        }
+
+        $reason = $request->input('reason', 'inactivity');
+        
+        // Set agent offline
+        $agent->update([
+            'status' => 'offline',
+            'last_seen' => now()
+        ]);
+
+        // Redistribute their conversations
+        $assignmentService = new ConversationAssignmentService();
+        $redistributedCount = $assignmentService->redistributeConversationsFromOfflineAgent($agent);
+
+        // Broadcast status change
+        broadcast(new \App\Events\AgentStatusUpdated($agent));
+
+        // Perform the actual logout
+        Auth::guard('web')->logout();
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
+
+        return response()->json([
+            'message' => 'Agent logged out due to inactivity',
+            'reason' => $reason,
+            'redistributed_conversations' => $redistributedCount,
+            'redirect' => '/'
+        ]);
+    }
+
     public function getUnreadCount()
     {
         $agent = Agent::where('email', Auth::user()->email)->first();
@@ -162,9 +255,11 @@ class AgentController extends Controller
             return response()->json(['error' => 'Agent not found'], 404);
         }
 
-        // Check if agent has access to this conversation
-        if ($conversation->agent_id !== $agent->id && $conversation->agent_id !== null) {
-            return response()->json(['error' => 'Unauthorized'], 403);
+        // Only allow access if:
+        // 1. Conversation is assigned to this agent
+        // 2. Conversation is unassigned (for assignment purposes)
+        if ($conversation->agent_id !== null && $conversation->agent_id !== $agent->id) {
+            return response()->json(['error' => 'This conversation is assigned to another agent'], 403);
         }
 
         $conversation->load(['user', 'agent']);
@@ -179,10 +274,23 @@ class AgentController extends Controller
             return response()->json(['error' => 'Agent not found'], 404);
         }
 
-        // Check if agent has access to this conversation
-        if ($conversation->agent_id !== $agent->id && $conversation->agent_id !== null) {
-            return response()->json(['error' => 'Unauthorized'], 403);
+        // Only allow access if:
+        // 1. Conversation is assigned to this agent
+        // 2. Conversation is unassigned (agent_id is null) - for assignment purposes
+        if ($conversation->agent_id !== null && $conversation->agent_id !== $agent->id) {
+            return response()->json(['error' => 'This conversation is assigned to another agent'], 403);
         }
+
+        // If conversation is unassigned, assign it to this agent when they access messages
+        if ($conversation->agent_id === null) {
+            $conversation->update([
+                'agent_id' => $agent->id,
+                'status' => 'active'  // Change status from 'waiting' to 'active'
+            ]);
+        }
+
+        // Mark all user messages in this conversation as read
+        $conversation->markAllAsRead();
 
         $messages = Message::where('conversation_id', $conversation->id)
             ->orderBy('created_at', 'asc')
@@ -223,14 +331,9 @@ class AgentController extends Controller
             return response()->json(['error' => 'Cannot send messages to closed conversations'], 400);
         }
 
-        // Check if agent has access to this conversation
-        if ($conversation->agent_id !== $agent->id && $conversation->agent_id !== null) {
-            return response()->json(['error' => 'Unauthorized'], 403);
-        }
-
-        // Assign conversation to agent if unassigned
-        if (!$conversation->agent_id) {
-            $conversation->update(['agent_id' => $agent->id]);
+        // Only allow replies if conversation is assigned to this agent
+        if ($conversation->agent_id !== $agent->id) {
+            return response()->json(['error' => 'Cannot reply to unassigned conversations. Please assign the conversation first.'], 403);
         }
 
         $message = Message::create([
@@ -240,8 +343,12 @@ class AgentController extends Controller
             'sender_id' => $agent->id,
         ]);
 
-        // Update conversation last activity
-        $conversation->update(['last_activity' => now()]);
+        // Update conversation last activity and reset unread count
+        // Agent is actively replying, so all messages are considered read
+        $conversation->update([
+            'last_activity' => now(),
+            'unread_count' => 0
+        ]);
 
         // Broadcast the message
         broadcast(new \App\Events\NewMessageEvent($message));

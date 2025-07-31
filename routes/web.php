@@ -141,6 +141,9 @@ Route::middleware('auth')->prefix('agent')->group(function () {
     Route::post('/status', [AgentController::class, 'updateStatus'])->name('agent.update-status');
     Route::post('/conversation/{conversation}/assign', [AgentController::class, 'assignConversation'])->name('agent.assign-conversation');
     Route::get('/unread-count', [AgentController::class, 'getUnreadCount'])->name('agent.unread-count');
+    Route::post('/heartbeat', [AgentController::class, 'heartbeat'])->name('agent.heartbeat');
+    Route::post('/set-offline', [AgentController::class, 'setOffline'])->name('agent.set-offline');
+    Route::post('/force-logout', [AgentController::class, 'forceLogout'])->name('agent.force-logout');
     Route::post('/logout', [AgentController::class, 'logout'])->name('agent.logout');
 });
 

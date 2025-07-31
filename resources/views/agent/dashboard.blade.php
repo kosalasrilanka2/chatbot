@@ -113,8 +113,8 @@
 
                             <!-- Conversations List -->
                             <div>
-                                <h3 class="text-lg font-medium mb-4">Active Conversations</h3>
-                                <div id="conversations-list" class="space-y-4">
+                                <h3 class="text-lg font-medium mb-4">Conversations</h3>
+                                <div id="conversations-list" class="space-y-2">
                                     <!-- Conversations will be loaded here -->
                                 </div>
                             </div>
@@ -266,6 +266,19 @@
                             // Show notification
                             showNotification('New message received!');
                         });
+
+                        agentChannel.listen('.force-logout', (e) => {
+                            console.log('🔒 Force logout received:', e);
+                            
+                            // Stop heartbeat
+                            stopHeartbeat();
+                            
+                            // Show warning message
+                            alert('You have been logged out due to inactivity. Please log in again.');
+                            
+                            // Redirect to login page
+                            window.location.href = '/login';
+                        });
                     @else
                         console.warn('⚠️ No agent found for current user');
                     @endif
@@ -274,6 +287,9 @@
 
             // Start initialization
             initializeEcho();
+
+            // Initialize agent presence tracking
+            initializeAgentPresence();
 
             // Load initial data
             loadConversations();
@@ -291,6 +307,117 @@
         });
 
         let currentStatus = 'online'; // Initialize as online
+        let heartbeatInterval = null;
+        let isPageUnloading = false;
+
+        // Agent presence tracking system
+        function initializeAgentPresence() {
+            console.log('🔄 Initializing agent presence tracking...');
+            
+            // Start heartbeat to maintain presence
+            startHeartbeat();
+            
+            // Handle browser close/refresh
+            window.addEventListener('beforeunload', function(e) {
+                console.log('🚪 Browser closing, setting agent offline...');
+                isPageUnloading = true;
+                setAgentOfflineSync();
+            });
+            
+            // Handle page visibility changes (tab switching, minimizing)
+            document.addEventListener('visibilitychange', function() {
+                if (document.visibilityState === 'visible') {
+                    console.log('👁️ Page visible, resuming heartbeat...');
+                    startHeartbeat();
+                } else {
+                    console.log('🙈 Page hidden, reducing heartbeat...');
+                    // Don't stop heartbeat completely, just reduce frequency
+                }
+            });
+            
+            // Handle network reconnection
+            window.addEventListener('online', function() {
+                console.log('🌐 Network reconnected, resuming agent presence...');
+                startHeartbeat();
+                // Update status to online if it was online before
+                if (currentStatus === 'online') {
+                    updateAgentStatus('online');
+                }
+            });
+            
+            // Handle network disconnection
+            window.addEventListener('offline', function() {
+                console.log('📡 Network disconnected, agent will appear offline...');
+                stopHeartbeat();
+            });
+        }
+
+        function startHeartbeat() {
+            // Clear existing interval
+            if (heartbeatInterval) {
+                clearInterval(heartbeatInterval);
+            }
+            
+            // Send heartbeat every 15 seconds
+            heartbeatInterval = setInterval(function() {
+                if (!isPageUnloading) {
+                    sendHeartbeat();
+                }
+            }, 15000); // 15 seconds
+            
+            // Send immediate heartbeat
+            sendHeartbeat();
+        }
+
+        function stopHeartbeat() {
+            if (heartbeatInterval) {
+                clearInterval(heartbeatInterval);
+                heartbeatInterval = null;
+            }
+        }
+
+        function sendHeartbeat() {
+            fetch('/agent/heartbeat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                },
+                body: JSON.stringify({
+                    status: currentStatus,
+                    timestamp: Date.now()
+                })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    console.warn('⚠️ Heartbeat failed:', response.status);
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('💓 Heartbeat sent successfully at', new Date().toLocaleTimeString());
+            })
+            .catch(error => {
+                console.warn('⚠️ Heartbeat error:', error);
+            });
+        }
+
+        function setAgentOfflineSync() {
+            // Synchronous request for browser close event
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '/agent/set-offline', false); // false = synchronous
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.setRequestHeader('X-CSRF-TOKEN', document.querySelector('meta[name="csrf-token"]').getAttribute('content'));
+            
+            try {
+                xhr.send(JSON.stringify({
+                    reason: 'browser_close'
+                }));
+                console.log('🔌 Agent set offline due to browser close');
+            } catch (error) {
+                console.error('❌ Failed to set agent offline:', error);
+            }
+        }
 
         function toggleStatus() {
             const newStatus = currentStatus === 'online' ? 'busy' : 'online';
@@ -370,34 +497,20 @@
                     console.log('Assigned conversations:', assignedConversations.length);
                     console.log('Waiting conversations:', waitingConversations.length);
                     
-                    // Add section header for assigned conversations if any exist
-                    if (assignedConversations.length > 0) {
-                        const assignedHeader = document.createElement('div');
-                        assignedHeader.className = 'mb-3 pb-2 border-b border-gray-200';
-                        assignedHeader.innerHTML = '<h3 class="font-semibold text-gray-800">My Assigned Conversations</h3>';
-                        container.appendChild(assignedHeader);
-                        
-                        assignedConversations.forEach(conversation => {
-                            const div = createConversationDiv(conversation, true);
+                    // Combine all conversations and sort by last_activity (newest first)
+                    const allConversations = [
+                        ...assignedConversations.map(conv => ({ ...conv, isAssigned: true })),
+                        ...waitingConversations.map(conv => ({ ...conv, isAssigned: false }))
+                    ].sort((a, b) => new Date(b.last_activity) - new Date(a.last_activity));
+                    
+                    console.log('All conversations combined:', allConversations.length);
+                    
+                    if (allConversations.length > 0) {
+                        allConversations.forEach(conversation => {
+                            const div = createConversationDiv(conversation, conversation.isAssigned);
                             container.appendChild(div);
                         });
-                    }
-                    
-                    // Add section header for waiting conversations if any exist
-                    if (waitingConversations.length > 0) {
-                        const waitingHeader = document.createElement('div');
-                        waitingHeader.className = 'mb-3 pb-2 border-b border-gray-200 mt-6';
-                        waitingHeader.innerHTML = '<h3 class="font-semibold text-gray-600">Available Conversations</h3>';
-                        container.appendChild(waitingHeader);
-                        
-                        waitingConversations.forEach(conversation => {
-                            const div = createConversationDiv(conversation, false);
-                            container.appendChild(div);
-                        });
-                    }
-                    
-                    // Show message if no conversations
-                    if (assignedConversations.length === 0 && waitingConversations.length === 0) {
+                    } else {
                         container.innerHTML = '<div class="text-center text-gray-500 py-8">No conversations available</div>';
                     }
                 })
@@ -411,43 +524,80 @@
         function createConversationDiv(conversation, isAssigned) {
             const div = document.createElement('div');
             const isClosed = conversation.status === 'closed';
+            const canAccess = isAssigned || conversation.agent_id === null; // Can access if assigned to me or unassigned
             
-            // Apply different styling for closed conversations
-            const baseClasses = 'border rounded p-4 mb-3';
-            const statusClasses = isClosed 
-                ? 'bg-gray-100 border-gray-300 opacity-75 cursor-default' 
-                : `hover:bg-gray-50 cursor-pointer ${isAssigned ? 'bg-blue-50 border-blue-200' : 'bg-gray-50'}`;
+            // Apply different styling for closed conversations and access restrictions
+            const baseClasses = 'border rounded p-3 mb-2 transition-all duration-200';
+            let statusClasses;
+            
+            if (isClosed) {
+                statusClasses = 'bg-gray-100 border-gray-300 opacity-75 cursor-default';
+            } else if (!canAccess) {
+                statusClasses = 'bg-red-50 border-red-200 opacity-60 cursor-not-allowed';
+            } else {
+                statusClasses = `hover:bg-gray-50 cursor-pointer hover:shadow-sm ${isAssigned ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'}`;
+            }
             
             div.className = `${baseClasses} ${statusClasses}`;
             
-            const statusBadge = isClosed 
-                ? '<span class="px-2 py-1 bg-gray-300 text-gray-600 text-xs rounded">CLOSED</span>'
-                : (!isAssigned 
-                    ? `<button onclick="assignConversation(${conversation.id})" 
-                              class="px-3 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600">
-                          Pick Up
-                       </button>`
-                    : '<span class="px-3 py-1 bg-green-100 text-green-800 text-sm rounded">Assigned to me</span>');
+            // Format last activity time
+            const lastActivity = new Date(conversation.last_activity);
+            const now = new Date();
+            const diffMinutes = Math.floor((now - lastActivity) / (1000 * 60));
+            
+            let timeDisplay;
+            if (diffMinutes < 1) {
+                timeDisplay = 'Just now';
+            } else if (diffMinutes < 60) {
+                timeDisplay = `${diffMinutes}m ago`;
+            } else if (diffMinutes < 1440) {
+                timeDisplay = `${Math.floor(diffMinutes / 60)}h ago`;
+            } else {
+                timeDisplay = lastActivity.toLocaleDateString();
+            }
+            
+            // Status badge styling
+            const getStatusBadge = () => {
+                if (isClosed) {
+                    return '<span class="px-2 py-1 bg-gray-200 text-gray-600 text-xs rounded-full font-medium">CLOSED</span>';
+                } else if (!canAccess) {
+                    return '<span class="px-2 py-1 bg-red-100 text-red-700 text-xs rounded-full font-medium">RESTRICTED</span>';
+                } else if (isAssigned) {
+                    return '<span class="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full font-medium">ASSIGNED</span>';
+                } else {
+                    return '<span class="px-2 py-1 bg-orange-100 text-orange-700 text-xs rounded-full font-medium">WAITING</span>';
+                }
+            };
+            
+            // Pick up button for waiting conversations
+            const pickupButton = (!isAssigned && !isClosed && canAccess) 
+                ? `<button onclick="assignConversation(${conversation.id})" 
+                          class="ml-2 px-3 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600 transition-colors">
+                      Pick Up
+                   </button>`
+                : '';
+            
+            // Click handler - only allow if conversation can be accessed
+            const clickHandler = canAccess ? 
+                (isClosed ? `openConversation(${conversation.id}, true)` : `openConversation(${conversation.id})`) : 
+                'showNotification("You cannot access conversations assigned to other agents")';
             
             div.innerHTML = `
-                <div class="flex justify-between items-start">
-                    <div onclick="${isClosed ? '' : `openConversation(${conversation.id})`}" class="${isClosed ? 'cursor-default' : 'cursor-pointer'}">
-                        <h4 class="font-medium ${isClosed ? 'text-gray-500' : ''}">${conversation.title || 'Conversation #' + conversation.id}</h4>
-                        <p class="text-sm ${isClosed ? 'text-gray-400' : 'text-gray-600'}">User: ${conversation.user.name}</p>
-                        <p class="text-sm ${isClosed ? 'text-gray-400' : 'text-gray-500'}">Status: ${conversation.status}</p>
-                        <p class="text-sm ${isClosed ? 'text-gray-400' : 'text-gray-500'}">Last Activity: ${new Date(conversation.last_activity).toLocaleString()}</p>
-                        ${isClosed ? '<p class="text-xs text-gray-400 mt-1 italic">Closed by user</p>' : ''}
+                <div class="flex items-center justify-between">
+                    <div onclick="${clickHandler}" 
+                         class="flex-1 flex items-center space-x-3 ${canAccess ? (isClosed ? 'cursor-default' : 'cursor-pointer') : 'cursor-not-allowed'}">
+                        <div class="flex-1 min-w-0">
+                            <h4 class="font-medium truncate ${isClosed ? 'text-gray-500' : (!canAccess ? 'text-red-500' : 'text-gray-900')}">${conversation.user.name}</h4>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            ${getStatusBadge()}
+                            ${conversation.unread_count > 0 && canAccess ? `<span class="inline-flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-green-500 rounded-full animate-pulse">${conversation.unread_count}</span>` : ''}
+                            <span class="text-xs ${isClosed ? 'text-gray-400' : (!canAccess ? 'text-red-400' : 'text-gray-500')} whitespace-nowrap">${timeDisplay}</span>
+                        </div>
                     </div>
-                    <div class="flex space-x-2">
-                        ${statusBadge}
-                    </div>
+                    ${pickupButton}
                 </div>
             `;
-            
-            // Make closed conversations clickable but in read-only mode
-            if (isClosed) {
-                div.onclick = () => openConversation(conversation.id, true); // true for read-only mode
-            }
             
             return div;
         }
@@ -531,7 +681,14 @@
 
         function loadMessages(conversationId) {
             fetch(`/agent/conversation/${conversationId}/messages`)
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().then(errorData => {
+                            throw new Error(errorData.error || 'Failed to load messages');
+                        });
+                    }
+                    return response.json();
+                })
                 .then(messages => {
                     const container = document.getElementById('messages-container');
                     container.innerHTML = '';
@@ -541,8 +698,26 @@
                     });
                     
                     scrollToBottom();
+                    
+                    // Refresh conversations list to update unread counts
+                    loadConversations();
                 })
-                .catch(error => console.error('Error loading messages:', error));
+                .catch(error => {
+                    console.error('Error loading messages:', error);
+                    showNotification(error.message || 'Failed to load messages');
+                    
+                    // Clear messages container and show error message
+                    const container = document.getElementById('messages-container');
+                    container.innerHTML = `
+                        <div class="flex items-center justify-center h-full text-gray-500">
+                            <div class="text-center">
+                                <div class="text-2xl mb-2">🔒</div>
+                                <div class="text-lg font-medium mb-1">Access Restricted</div>
+                                <div class="text-sm">${error.message || 'You cannot view messages for this conversation'}</div>
+                            </div>
+                        </div>
+                    `;
+                });
         }
 
         function appendMessage(message) {
@@ -658,18 +833,32 @@
                     content: content
                 })
             })
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(errorData => {
+                        throw new Error(errorData.error || 'Failed to send message');
+                    });
+                }
+                return response.json();
+            })
             .then(data => {
                 if (data.message === 'Message sent successfully') {
                     input.value = '';
+                    
+                    // Refresh conversations list to update unread counts
+                    loadConversations();
                     
                     // Message will appear via real-time WebSocket subscription
                     // No need to add immediately since real-time is working
                 } else {
                     console.error('Error sending message:', data);
+                    showNotification('Failed to send message');
                 }
             })
-            .catch(error => console.error('Error sending message:', error));
+            .catch(error => {
+                console.error('Error sending message:', error);
+                showNotification(error.message || 'Failed to send message');
+            });
         }
 
         function assignConversation(conversationId) {

@@ -21,7 +21,8 @@ class Conversation extends Model
         'priority',
         'skill_requirements',
         'language_match_score',
-        'domain_match_score'
+        'domain_match_score',
+        'unread_count'
     ];
 
     protected $casts = [
@@ -52,5 +53,39 @@ class Conversation extends Model
     public function unreadMessages()
     {
         return $this->messages()->where('is_read', false);
+    }
+
+    /**
+     * Get unread messages count for the agent
+     */
+    public function getUnreadCountForAgent()
+    {
+        return $this->messages()
+            ->where('is_read', false)
+            ->where('sender_type', 'user') // Only count user messages as unread for agents
+            ->count();
+    }
+
+    /**
+     * Update the unread count in the conversation
+     */
+    public function updateUnreadCount()
+    {
+        $count = $this->getUnreadCountForAgent();
+        $this->update(['unread_count' => $count]);
+        return $count;
+    }
+
+    /**
+     * Mark all messages as read and reset unread count
+     */
+    public function markAllAsRead()
+    {
+        $this->messages()
+            ->where('is_read', false)
+            ->where('sender_type', 'user')
+            ->update(['is_read' => true, 'read_at' => now()]);
+        
+        $this->update(['unread_count' => 0]);
     }
 }

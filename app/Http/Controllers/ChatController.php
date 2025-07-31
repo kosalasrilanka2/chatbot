@@ -70,8 +70,13 @@ class ChatController extends Controller
             'sender_id' => $senderId,
         ]);
 
-        // Update conversation last activity
+        // Update conversation last activity and unread count
         $conversation->update(['last_activity' => now()]);
+        
+        // If this is a user message, increment unread count for agent
+        if ($request->sender_type === 'user') {
+            $conversation->increment('unread_count');
+        }
 
         // Broadcast the message
         broadcast(new NewMessageEvent($message));
